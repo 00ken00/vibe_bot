@@ -26,6 +26,17 @@ from vibe_bot.gmo import PublicClient, PrivateClient, PublicWebSocket, PrivateWe
 
 `PrivateClient` reads `GMO_API_KEY` and `GMO_API_SECRET` from the environment by default. Override with constructor args if needed.
 
+**Local & VM convention: `.env` at repo root.** Copy `.env.example` → `.env` and fill in values. `.env` is gitignored and `chmod 600`. Load it at the **entry point** of any script that talks to private endpoints (do not load it from inside the library):
+
+```python
+from dotenv import load_dotenv
+load_dotenv()  # before importing/using PrivateClient
+
+from vibe_bot.gmo import PrivateClient
+```
+
+On the GCP VM, place `.env` at the project root the same way (copy via `scp` or paste with `chmod 600`); the same `load_dotenv()` call works.
+
 To check that creds work without placing trades:
 
 ```python
