@@ -93,12 +93,13 @@ class SymbolRule(_Base):
 
 
 class Margin(_Base):
-    actual_profit_loss: Decimal = Field(alias="actualProfitLoss")
-    available_amount: Decimal = Field(alias="availableAmount")
-    margin: Decimal
-    margin_call_status: str = Field(alias="marginCallStatus")
-    margin_maintenance_rate: Decimal = Field(alias="marginMaintenanceRate")
-    profit_loss: Decimal = Field(alias="profitLoss")
+    actual_profit_loss: Decimal | None = Field(default=None, alias="actualProfitLoss")
+    available_amount: Decimal | None = Field(default=None, alias="availableAmount")
+    margin: Decimal | None = None
+    margin_call_status: str | None = Field(default=None, alias="marginCallStatus")
+    margin_maintenance_rate: Decimal | None = Field(default=None, alias="marginMaintenanceRate")
+    profit_loss: Decimal | None = Field(default=None, alias="profitLoss")
+    transferable_amount: Decimal | None = Field(default=None, alias="transferableAmount")
 
 
 class Asset(_Base):

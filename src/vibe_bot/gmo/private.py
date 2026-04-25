@@ -112,13 +112,13 @@ class PrivateClient:
 
     async def active_orders(
         self,
-        symbol: str | None = None,
+        symbol: str,
         *,
         page: int | None = None,
         count: int | None = None,
     ) -> OrderList:
         params = _clean({"symbol": symbol, "page": page, "count": count})
-        data = await self._http.private("GET", "/v1/activeOrders", params=params or None)
+        data = await self._http.private("GET", "/v1/activeOrders", params=params)
         return OrderList.model_validate(data)
 
     async def order_info(self, order_id: int | str) -> Order:
@@ -282,13 +282,13 @@ class PrivateClient:
 
     async def open_positions(
         self,
-        symbol: str | None = None,
+        symbol: str,
         *,
         page: int | None = None,
         count: int | None = None,
     ) -> PositionList:
         params = _clean({"symbol": symbol, "page": page, "count": count})
-        data = await self._http.private("GET", "/v1/openPositions", params=params or None)
+        data = await self._http.private("GET", "/v1/openPositions", params=params)
         return PositionList.model_validate(data)
 
     async def position_summary(self, symbol: str | None = None) -> PositionSummaryList:
@@ -327,7 +327,12 @@ class PrivateClient:
         return str(data)
 
     async def extend_ws_token(self, token: str) -> None:
-        await self._http.private("PUT", "/v1/ws-auth", json_body={"token": token})
+        # GMO quirk: ws-auth PUT/DELETE send a JSON body but sign with empty body.
+        await self._http.private(
+            "PUT", "/v1/ws-auth", json_body={"token": token}, sign_body_override=""
+        )
 
     async def delete_ws_token(self, token: str) -> None:
-        await self._http.private("DELETE", "/v1/ws-auth", json_body={"token": token})
+        await self._http.private(
+            "DELETE", "/v1/ws-auth", json_body={"token": token}, sign_body_override=""
+        )

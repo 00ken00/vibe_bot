@@ -64,7 +64,12 @@ class HttpClient:
         *,
         params: dict | None = None,
         json_body: dict | None = None,
+        sign_body_override: str | None = None,
     ) -> Any:
+        """sign_body_override: if set, use this string (typically "") as the body
+        component of the HMAC signature instead of the actual JSON body. Required
+        for ws-auth PUT/DELETE which send a body but GMO signs as if empty.
+        """
         return await self._request(
             method,
             PRIVATE_BASE + path,
@@ -72,6 +77,7 @@ class HttpClient:
             params=params,
             json_body=json_body,
             signed=True,
+            sign_body_override=sign_body_override,
         )
 
     async def _request(
@@ -83,6 +89,7 @@ class HttpClient:
         params: dict | None = None,
         json_body: dict | None = None,
         signed: bool,
+        sign_body_override: str | None = None,
     ) -> Any:
         await self._limiter.acquire()
 
@@ -99,9 +106,10 @@ class HttpClient:
                     [{"message_code": "LOCAL", "message_string": "missing api key/secret"}],
                 )
             ts = now_timestamp_ms()
+            sign_body = sign_body_override if sign_body_override is not None else body_str
             headers["API-KEY"] = self._api_key
             headers["API-TIMESTAMP"] = ts
-            headers["API-SIGN"] = sign(self._api_secret, ts, method, path, body_str)
+            headers["API-SIGN"] = sign(self._api_secret, ts, method, path, sign_body)
 
         try:
             resp = await self._client.request(
