@@ -9,3 +9,6 @@ wheels/
 # venv
 .venv
 prompt.txt
+
+# secrets
+.env
