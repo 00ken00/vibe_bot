@@ -12,3 +12,4 @@ prompt.txt
 
 # secrets
 .env
+/quote_log/
