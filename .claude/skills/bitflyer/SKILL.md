@@ -69,7 +69,8 @@ async with PrivateClient() as p:
 - **Realtime is JSON-RPC 2.0 over a single WebSocket** (`wss://ws.lightstream.bitflyer.com/json-rpc`). There's also a Socket.IO endpoint, but this client only speaks JSON-RPC; the surface is simpler and behaviorally identical.
 - **Private channels need an `auth` call right after connect** with `(api_key, timestamp_ms, nonce, signature=HMAC(secret, timestamp+nonce))`. `PrivateWebSocket` does this for you and re-auths on reconnect.
 - **Realtime delivery is best-effort.** Disconnections lose history (no replay). For order-book accuracy, subscribe to **both** `lightning_board_snapshot_<pair>` and `lightning_board_<pair>` and rebuild from each new snapshot.
-- **Errors**: catch `ApiError` (or its subclasses `AuthError`, `RateLimitError`); they carry bitFlyer's negative `status` (e.g. `-205` invalid signature, `-132` rate limited, `-505` 2FA).
+- **Errors**: catch `ApiError` (or its subclasses `AuthError`, `RateLimitError`); they carry bitFlyer's negative `status` (e.g. `-205` invalid signature, `-132` rate limited, `-505` 2FA). `TransportError` wraps httpx errors and prefixes the class (e.g. `ReadTimeout: ...`) so the cause is visible.
+- **Some endpoints are slow** (`/v1/me/getparentorders` without a `parent_order_state` filter, `/v1/me/getbalancehistory` over wide ranges). The default `HttpClient(timeout=10.0)` may bite — pass a larger `timeout=` or always send a state/page filter on those calls.
 
 ## Common recipes
 

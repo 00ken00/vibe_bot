@@ -131,7 +131,7 @@ class HttpClient:
                 headers=headers,
             )
         except httpx.HTTPError as e:
-            raise TransportError(str(e)) from e
+            raise TransportError(f"{type(e).__name__}: {e}") from e
 
         return self._parse(resp)
 
