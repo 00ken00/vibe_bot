@@ -8,7 +8,7 @@ wheels/
 
 # venv
 .venv
-prompt.txt
+./prompt.txt
 
 # secrets
 .env
