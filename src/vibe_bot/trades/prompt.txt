@@ -1,0 +1,32 @@
+I want to implement a arbitrage bot between bitbank and bitflyer:
+
+The basic strategy is below:
+
+- consider the symbol position bitbank and bitflyer as a whole:
+  buy in bitbank and sell in bitflyer is regarded as BUY action
+  sell in bitbank and buy in bitflyer is regarded as SELL action
+  - the BUY price is the cost of BUY action:
+    namely buy_price in bitbank - sell_price in bitflyer
+  - the SELL price is the profit of SELL action:
+    namely sell_price in bitbank - buy_price in bitflyer
+
+- Set a positive threshold value
+  - if the BUY price is below -threshold, perform BUY action and enter a long position
+  - if the SELL price is above 0, perform SELL action and close this long position
+  - if the SELL price is above threshold, perform SELL action and enter a short position
+  - if the BUY price is below 0, perform BUY action and close this short position
+
+- Only maintain one maker in bitbank:
+  - For example in 0 position, whether place a BUY order or SELL order should dependent on which order has higher probability to be filled.
+  - the maker order should updated for 0.5 second interval (set this also a parameter)
+
+
+Implement a web app frontend that can monitor the price by plotting the realtime chart for the BUY and SELL price realtime (update per sec).
+The active maker order should be plot in the same chart.
+
+Also add some other key results for monitoring in the web app. (like profit)
+
+Log the key transaction information for further analysis, like order slippage.
+
+Implement all scripts under src/trades folder
+
