@@ -24,7 +24,7 @@ from vibe_bot.bitflyer import PrivateClient
 PRODUCT_CODE = "FX_BTC_JPY"
 COUNT = 500
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OUT_DIR = REPO_ROOT / "quote_log"
+OUT_DIR = REPO_ROOT / "quote_log" / "transactions"
 
 
 def signed_delta(side: str, size: Decimal) -> Decimal:
