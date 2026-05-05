@@ -9,6 +9,7 @@ wheels/
 # venv
 .venv
 /prompt.txt
+/scratch.sh
 
 # secrets
 .env
