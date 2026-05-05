@@ -66,3 +66,9 @@ instead of just using best ask / best bid, estimate the order price to full fill
 
 
 Is quote_interval still used in the bot?
+
+
+
+In src/vibe_bot/trades/bitbank_bitflyer_web.py
+
+the config has type = any, makes my editor failed to recognize the type, change it to correct type, avoid all any type for better static parsing

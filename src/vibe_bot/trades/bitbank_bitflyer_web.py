@@ -5,15 +5,28 @@ import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import TYPE_CHECKING
 
 import websockets
+from websockets.asyncio.server import ServerConnection
+
+if TYPE_CHECKING:
+    from vibe_bot.trades.bitbank_bitflyer_arbitrage import (
+        BotConfig,
+        BotState,
+        Broadcaster,
+    )
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_web")
 
 
 class WebApp:
-    def __init__(self, config: Any, state: Any, broadcaster: Any) -> None:
+    def __init__(
+        self,
+        config: BotConfig,
+        state: BotState,
+        broadcaster: Broadcaster,
+    ) -> None:
         self.config = config
         self.state = state
         self.broadcaster = broadcaster
@@ -34,8 +47,8 @@ class WebApp:
                 self.end_headers()
                 self.wfile.write(html)
 
-            def log_message(self, fmt: str, *args: Any) -> None:
-                LOGGER.debug("web: " + fmt, *args)
+            def log_message(self, format: str, *args: object) -> None:
+                LOGGER.debug("web: " + format, *args)
 
         self._httpd = ThreadingHTTPServer(
             (self.config.web_host, self.config.web_port), Handler
@@ -49,7 +62,7 @@ class WebApp:
             self._httpd.server_close()
 
     async def run_ws(self, stop: asyncio.Event) -> None:
-        async def handler(ws: Any) -> None:
+        async def handler(ws: ServerConnection) -> None:
             await self.broadcaster.add(ws)
             try:
                 await ws.wait_closed()
@@ -66,7 +79,7 @@ class WebApp:
             await self.broadcaster.publish(payload)
             await asyncio.sleep(self.config.monitor_update_interval)
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> dict[str, object]:
         quote = self.state.quote
         active = self.state.active_maker
         uptime = time.time() - self.state.started_at

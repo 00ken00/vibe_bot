@@ -7,16 +7,18 @@ import json
 import logging
 import signal
 import time
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from pathlib import Path
-from typing import Any, Iterable
 
 from dotenv import load_dotenv
+from websockets.asyncio.server import ServerConnection
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
 from vibe_bot.bitbank import PublicWebSocket as BitbankPublicWebSocket
+from vibe_bot.bitbank.models import Side as BitbankSide
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
@@ -105,7 +107,7 @@ class MakerOrder:
     """
 
     action: str
-    side: str
+    side: BitbankSide
     price: Decimal
     amount: Decimal
     trigger_price: Decimal
@@ -134,7 +136,11 @@ class BotState:
     started_at: float = field(default_factory=time.time)
 
 
-def decimal_to_json(value: Any) -> Any:
+Jsonable = None | bool | int | float | str | list[object] | dict[str, object]
+BookLevel = Mapping[str, object] | Sequence[object]
+
+
+def decimal_to_json(value: object) -> Jsonable:
     if isinstance(value, Decimal):
         return format(value, "f")
     if isinstance(value, Path):
@@ -142,10 +148,19 @@ def decimal_to_json(value: Any) -> Any:
     if isinstance(value, (Quote, MakerOrder, BotState)):
         return decimal_to_json(asdict(value))
     if isinstance(value, dict):
-        return {k: decimal_to_json(v) for k, v in value.items()}
+        return {str(k): decimal_to_json(v) for k, v in value.items()}
     if isinstance(value, list):
         return [decimal_to_json(v) for v in value]
-    return value
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def decimal_to_json_dict(value: dict[str, object]) -> dict[str, object]:
+    converted = decimal_to_json(value)
+    if not isinstance(converted, dict):
+        raise TypeError("expected JSON object")
+    return converted
 
 
 def utc_iso(ts: float | None = None) -> str:
@@ -200,13 +215,13 @@ class TradeLogger:
     def close(self) -> None:
         self._csv_file.close()
 
-    def event(self, event_type: str, **payload: Any) -> None:
+    def event(self, event_type: str, **payload: object) -> None:
         row = {"timestamp": utc_iso(), "event": event_type, **payload}
         with self.events_path.open("a") as f:
             f.write(json.dumps(decimal_to_json(row), separators=(",", ":")) + "\n")
 
-    def trade(self, **payload: Any) -> None:
-        self._csv.writerow(decimal_to_json(payload))
+    def trade(self, **payload: object) -> None:
+        self._csv.writerow(decimal_to_json_dict(payload))
         self._csv_file.flush()
 
 
@@ -218,15 +233,15 @@ class Broadcaster:
     """
 
     def __init__(self) -> None:
-        self._clients: set[Any] = set()
+        self._clients: set[ServerConnection] = set()
 
-    async def add(self, ws: Any) -> None:
+    async def add(self, ws: ServerConnection) -> None:
         self._clients.add(ws)
 
-    async def remove(self, ws: Any) -> None:
+    async def remove(self, ws: ServerConnection) -> None:
         self._clients.discard(ws)
 
-    async def publish(self, payload: dict[str, Any]) -> None:
+    async def publish(self, payload: dict[str, object]) -> None:
         if not self._clients:
             return
         message = json.dumps(decimal_to_json(payload), separators=(",", ":"))
@@ -252,11 +267,11 @@ class OrderBook:
         self.bids: dict[Decimal, Decimal] = {}
         self.asks: dict[Decimal, Decimal] = {}
 
-    def replace(self, *, bids: Iterable[Any], asks: Iterable[Any]) -> None:
+    def replace(self, *, bids: Iterable[BookLevel], asks: Iterable[BookLevel]) -> None:
         self.bids = self._levels_to_dict(bids)
         self.asks = self._levels_to_dict(asks)
 
-    def update(self, *, bids: Iterable[Any], asks: Iterable[Any]) -> None:
+    def update(self, *, bids: Iterable[BookLevel], asks: Iterable[BookLevel]) -> None:
         self._apply_levels(self.bids, bids)
         self._apply_levels(self.asks, asks)
 
@@ -286,23 +301,27 @@ class OrderBook:
                 return notional / amount
         return None
 
-    def _levels_to_dict(self, levels: Iterable[Any]) -> dict[Decimal, Decimal]:
+    def _levels_to_dict(self, levels: Iterable[BookLevel]) -> dict[Decimal, Decimal]:
         result: dict[Decimal, Decimal] = {}
         for price, size in self._iter_levels(levels):
             if size > 0:
                 result[price] = size
         return result
 
-    def _apply_levels(self, book: dict[Decimal, Decimal], levels: Iterable[Any]) -> None:
+    def _apply_levels(
+        self, book: dict[Decimal, Decimal], levels: Iterable[BookLevel]
+    ) -> None:
         for price, size in self._iter_levels(levels):
             if size <= 0:
                 book.pop(price, None)
             else:
                 book[price] = size
 
-    def _iter_levels(self, levels: Iterable[Any]) -> Iterable[tuple[Decimal, Decimal]]:
+    def _iter_levels(
+        self, levels: Iterable[BookLevel]
+    ) -> Iterable[tuple[Decimal, Decimal]]:
         for level in levels or []:
-            if isinstance(level, dict):
+            if isinstance(level, Mapping):
                 price = level.get("price")
                 size = level.get("size") or level.get("amount")
             else:
