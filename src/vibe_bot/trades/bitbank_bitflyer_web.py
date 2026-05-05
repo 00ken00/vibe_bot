@@ -89,6 +89,7 @@ class WebApp:
             "uptime_sec": round(uptime, 1),
             "dry_run": self.config.dry_run,
             "threshold_jpy": self.config.threshold_jpy,
+            "threshold_offset_jpy": self.config.threshold_offset_jpy,
             "position": self.state.position,
             "realized_pnl_jpy": self.state.realized_pnl_jpy,
             "filled_base": self.state.filled_base,
@@ -215,6 +216,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
       <span class="key"><span class="swatch" style="background:var(--sell)"></span>SELL price</span>
       <span class="key"><span class="swatch" style="background:var(--maker)"></span>active bitbank maker</span>
       <span class="key">threshold: {self.config.threshold_jpy} JPY</span>
+      <span class="key">offset: {self.config.threshold_offset_jpy} JPY</span>
     </div>
     <canvas id="chart" width="1400" height="560"></canvas>
   </section>

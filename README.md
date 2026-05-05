@@ -17,6 +17,7 @@ Run dry-run:
 ```bash
 python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --threshold-jpy 1000 \
+  --threshold-offset-jpy 0 \
   --order-size 0.001 \
   --max-position 0.003 \
   --maker-update-interval 0.5 \
@@ -34,6 +35,7 @@ Override parameters by changing the CLI values:
 ```bash
 python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --threshold-jpy 1500 \
+  --threshold-offset-jpy 200 \
   --order-size 0.0005
 ```
 

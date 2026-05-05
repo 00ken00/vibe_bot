@@ -37,6 +37,7 @@ class BotConfig:
     bitbank_pair: str = "btc_jpy"
     bitflyer_product_code: str = "FX_BTC_JPY"
     threshold_jpy: Decimal = Decimal("1000")
+    threshold_offset_jpy: Decimal = Decimal("0")
     order_size: Decimal = Decimal("0.001")
     max_position: Decimal = Decimal("0.003")
     maker_update_interval: float = 0.5
@@ -503,24 +504,27 @@ class ArbitrageTrader:
         sell_price = quote.sell_price
         assert buy_price is not None and sell_price is not None
         threshold = self.config.threshold_jpy
+        offset = self.config.threshold_offset_jpy
+        buy_open_trigger = offset - threshold
+        sell_open_trigger = offset + threshold
         position = self.state.position
 
         if position > 0:
-            if sell_price > Decimal("0"):
-                return self._build_target("SELL", Decimal("0"))
+            if sell_price > offset:
+                return self._build_target("SELL", offset)
             return None
         if position < 0:
-            if buy_price < Decimal("0"):
-                return self._build_target("BUY", Decimal("0"))
+            if buy_price < offset:
+                return self._build_target("BUY", offset)
             return None
 
-        buy_edge = -threshold - buy_price
-        sell_edge = sell_price - threshold
+        buy_edge = buy_open_trigger - buy_price
+        sell_edge = sell_price - sell_open_trigger
         if buy_edge <= 0 and sell_edge <= 0:
             return None
         if sell_edge > buy_edge:
-            return self._build_target("SELL", threshold)
-        return self._build_target("BUY", -threshold)
+            return self._build_target("SELL", sell_open_trigger)
+        return self._build_target("BUY", buy_open_trigger)
 
     def _target_amount(self, action: str) -> Decimal:
         position = self.state.position
@@ -759,6 +763,12 @@ def build_parser() -> argparse.ArgumentParser:
         description="bitbank maker / bitFlyer taker BTC-JPY arbitrage bot with web monitor."
     )
     parser.add_argument("--threshold-jpy", type=decimal_arg, default=Decimal("1000"))
+    parser.add_argument(
+        "--threshold-offset-jpy",
+        type=decimal_arg,
+        default=Decimal("0"),
+        help="center spread offset for open/close thresholds",
+    )
     parser.add_argument("--order-size", type=decimal_arg, default=Decimal("0.001"))
     parser.add_argument("--max-position", type=decimal_arg, default=Decimal("0.003"))
     parser.add_argument("--maker-update-interval", type=float, default=0.5)
@@ -796,6 +806,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         bitbank_pair=args.bitbank_pair,
         bitflyer_product_code=args.bitflyer_product_code,
         threshold_jpy=args.threshold_jpy,
+        threshold_offset_jpy=args.threshold_offset_jpy,
         order_size=args.order_size,
         max_position=args.max_position,
         maker_update_interval=args.maker_update_interval,
