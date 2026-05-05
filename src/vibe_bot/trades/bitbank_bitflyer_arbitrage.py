@@ -323,7 +323,9 @@ class OrderBook:
         for level in levels or []:
             if isinstance(level, Mapping):
                 price = level.get("price")
-                size = level.get("size") or level.get("amount")
+                size = level.get("size")
+                if size is None:
+                    size = level.get("amount")
             else:
                 price, size = level[0], level[1]
             yield Decimal(str(price)), Decimal(str(size))
