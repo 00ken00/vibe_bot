@@ -198,7 +198,27 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
 }}
 .label {{ color: var(--muted); font-size: 12px; }}
 .value {{ margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-.subvalue {{ margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.3; }}
+.tooltip-wrap {{ position: relative; display: inline-block; max-width: 100%; }}
+.tooltip {{
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: calc(100% + 8px);
+  width: max-content;
+  max-width: 280px;
+  background: #101828;
+  color: #ffffff;
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.16);
+  transition: opacity 120ms ease;
+}}
+.tooltip-wrap:hover .tooltip {{ visibility: visible; opacity: 1; }}
 .chart-wrap {{
   background: var(--panel);
   border: 1px solid var(--line);
@@ -268,7 +288,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Position BTC</div><div id="position" class="value">--</div></div>
     <div class="metric"><div class="label">Realized PnL JPY</div><div id="pnl" class="value">--</div></div>
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
-    <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div><div id="actionDescription" class="subvalue">--</div></div>
+    <div class="metric"><div class="label">Action</div><div class="tooltip-wrap"><div id="action" class="value">--</div><div id="actionTooltip" class="tooltip">--</div></div></div>
   </section>
   <section class="chart-wrap">
     <div class="legend">
@@ -343,7 +363,7 @@ function renderMetrics() {{
   setText("pnl", fmt.format(num(latest.realized_pnl_jpy || 0)));
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
-  setText("actionDescription", latest.last_action_description || "--");
+  setText("actionTooltip", latest.last_action_description || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);

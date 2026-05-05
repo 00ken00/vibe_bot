@@ -116,3 +116,7 @@ Add this help info to website
 
 
 Change last_action to a enum class and add description
+
+
+
+Move the description of action to a hover tooltip style, only mouse hover on the action value, the description will show up, otherwise it will be hidden
