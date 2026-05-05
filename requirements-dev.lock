@@ -14,9 +14,15 @@ annotated-types==0.7.0
     # via pydantic
 anyio==4.13.0
     # via httpx
+asttokens==3.0.1
+    # via stack-data
 certifi==2026.4.22
     # via httpcore
     # via httpx
+decorator==5.2.1
+    # via ipython
+executing==2.2.1
+    # via stack-data
 h11==0.16.0
     # via httpcore
 httpcore==1.0.9
@@ -26,12 +32,39 @@ httpx==0.28.1
 idna==3.13
     # via anyio
     # via httpx
+ipython==9.13.0
+ipython-pygments-lexers==1.1.1
+    # via ipython
+jedi==0.20.0
+    # via ipython
+matplotlib-inline==0.2.1
+    # via ipython
+parso==0.8.7
+    # via jedi
+pexpect==4.9.0
+    # via ipython
+prompt-toolkit==3.0.52
+    # via ipython
+psutil==7.2.2
+    # via ipython
+ptyprocess==0.7.0
+    # via pexpect
+pure-eval==0.2.3
+    # via stack-data
 pydantic==2.13.3
     # via vibe-bot
 pydantic-core==2.46.3
     # via pydantic
+pygments==2.20.0
+    # via ipython
+    # via ipython-pygments-lexers
 python-dotenv==1.2.2
     # via vibe-bot
+stack-data==0.6.3
+    # via ipython
+traitlets==5.14.3
+    # via ipython
+    # via matplotlib-inline
 typing-extensions==4.15.0
     # via anyio
     # via pydantic
@@ -39,5 +72,7 @@ typing-extensions==4.15.0
     # via typing-inspection
 typing-inspection==0.4.2
     # via pydantic
+wcwidth==0.7.0
+    # via prompt-toolkit
 websockets==16.0
     # via vibe-bot
