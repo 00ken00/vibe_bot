@@ -604,17 +604,21 @@ class ArbitrageTrader:
         assert quote.bitflyer_bid_vwap is not None
         assert quote.bitflyer_ask_vwap is not None
         if action == "BUY":
-            passive = quote.bitbank_bid + self.config.tick_size
+            passive = quote.bitbank_ask - self.config.tick_size
             profitable = quote.bitflyer_bid_vwap + trigger
             price = quantize_down(min(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_bid_vwap
             side = "buy"
         else:
-            passive = quote.bitbank_ask - self.config.tick_size
+            passive = quote.bitbank_bid + self.config.tick_size
             profitable = quote.bitflyer_ask_vwap + trigger
             price = quantize_up(max(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_ask_vwap
             side = "sell"
+        if action == "BUY" and price >= quote.bitbank_ask:
+            return None
+        if action == "SELL" and price <= quote.bitbank_bid:
+            return None
         if price <= 0:
             return None
         return MakerOrder(
