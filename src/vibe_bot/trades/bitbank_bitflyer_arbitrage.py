@@ -38,7 +38,7 @@ class BotConfig:
     order_size: Decimal = Decimal("0.001")
     max_position: Decimal = Decimal("0.003")
     maker_update_interval: float = 0.5
-    quote_interval: float = 1.0
+    monitor_update_interval: float = 1.0
     tick_size: Decimal = Decimal("1")
     min_order_size: Decimal = Decimal("0.0001")
     dry_run: bool = True
@@ -742,7 +742,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-position", type=decimal_arg, default=Decimal("0.003"))
     parser.add_argument("--maker-update-interval", type=float, default=0.5)
     parser.add_argument(
-        "--quote-interval",
+        "--monitor-update-interval",
         type=float,
         default=1.0,
         help="seconds between browser websocket snapshot updates",
@@ -769,6 +769,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--max-position must be positive")
     if args.maker_update_interval <= 0:
         raise SystemExit("--maker-update-interval must be positive")
+    if args.monitor_update_interval <= 0:
+        raise SystemExit("--monitor-update-interval must be positive")
     return BotConfig(
         bitbank_pair=args.bitbank_pair,
         bitflyer_product_code=args.bitflyer_product_code,
@@ -776,7 +778,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         order_size=args.order_size,
         max_position=args.max_position,
         maker_update_interval=args.maker_update_interval,
-        quote_interval=args.quote_interval,
+        monitor_update_interval=args.monitor_update_interval,
         tick_size=args.tick_size,
         min_order_size=args.min_order_size,
         dry_run=not args.live,

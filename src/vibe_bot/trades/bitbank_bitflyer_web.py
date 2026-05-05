@@ -64,7 +64,7 @@ class WebApp:
         while not stop.is_set():
             payload = self.snapshot()
             await self.broadcaster.publish(payload)
-            await asyncio.sleep(self.config.quote_interval)
+            await asyncio.sleep(self.config.monitor_update_interval)
 
     def snapshot(self) -> dict[str, Any]:
         quote = self.state.quote

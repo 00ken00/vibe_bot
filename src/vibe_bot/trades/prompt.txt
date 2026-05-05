@@ -64,3 +64,5 @@ Also using orderbook instead of ticker to consider the exchange depth.
 the quote data should also consider order_size as depth. 
 instead of just using best ask / best bid, estimate the order price to full fill the order size.
 
+
+Is quote_interval still used in the bot?
