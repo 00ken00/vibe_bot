@@ -11,6 +11,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
+from enum import Enum
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,6 +25,56 @@ from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
+
+
+class BotAction(Enum):
+    """Typed strategy status exposed to logs and the web monitor."""
+
+    IDLE = ("idle", "No trade target is active.")
+    WAITING_FOR_QUOTES = (
+        "waiting_for_quotes",
+        "Waiting for enough order-book data from both exchanges.",
+    )
+    MAINTAIN_BUY = (
+        "maintain_buy",
+        "Keeping the current BUY-action bitbank maker quote.",
+    )
+    MAINTAIN_SELL = (
+        "maintain_sell",
+        "Keeping the current SELL-action bitbank maker quote.",
+    )
+    QUOTE_BUY_DRY_RUN = (
+        "quote_buy_dry_run",
+        "Dry-run selected a BUY-action maker quote; no order was placed.",
+    )
+    QUOTE_SELL_DRY_RUN = (
+        "quote_sell_dry_run",
+        "Dry-run selected a SELL-action maker quote; no order was placed.",
+    )
+    PLACED_BUY = (
+        "placed_buy",
+        "Live mode placed a real BUY-action bitbank maker order.",
+    )
+    PLACED_SELL = (
+        "placed_sell",
+        "Live mode placed a real SELL-action bitbank maker order.",
+    )
+
+    def __init__(self, value: str, description: str) -> None:
+        self._value_ = value
+        self.description = description
+
+    @classmethod
+    def maintain(cls, action: str) -> "BotAction":
+        return cls.MAINTAIN_BUY if action == "BUY" else cls.MAINTAIN_SELL
+
+    @classmethod
+    def dry_run_quote(cls, action: str) -> "BotAction":
+        return cls.QUOTE_BUY_DRY_RUN if action == "BUY" else cls.QUOTE_SELL_DRY_RUN
+
+    @classmethod
+    def placed(cls, action: str) -> "BotAction":
+        return cls.PLACED_BUY if action == "BUY" else cls.PLACED_SELL
 
 
 @dataclass(frozen=True)
@@ -132,7 +183,7 @@ class BotState:
     filled_base: Decimal = Decimal("0")
     trade_count: int = 0
     active_maker: MakerOrder | None = None
-    last_action: str = "idle"
+    last_action: BotAction = BotAction.IDLE
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
 
@@ -146,6 +197,8 @@ def decimal_to_json(value: object) -> Jsonable:
         return format(value, "f")
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, BotAction):
+        return value.value
     if isinstance(value, (Quote, MakerOrder, BotState)):
         return decimal_to_json(asdict(value))
     if isinstance(value, dict):
@@ -484,16 +537,16 @@ class ArbitrageTrader:
     async def _tick(self) -> None:
         quote = self.state.quote
         if not quote.ready:
-            self.state.last_action = "waiting_for_quotes"
+            self.state.last_action = BotAction.WAITING_FOR_QUOTES
             return
         await self._refresh_active_maker()
         target = self._choose_target()
         if target is None:
-            self.state.last_action = "idle"
+            self.state.last_action = BotAction.IDLE
             await self._cancel_active_maker("no_target")
             return
         if self._same_maker(self.state.active_maker, target):
-            self.state.last_action = f"maintain_{target.action.lower()}"
+            self.state.last_action = BotAction.maintain(target.action)
             return
         await self._replace_maker(target)
 
@@ -588,7 +641,7 @@ class ArbitrageTrader:
         if self.config.dry_run:
             target.order_id = "DRY-RUN"
             self.state.active_maker = target
-            self.state.last_action = f"quote_{target.action.lower()}_dry_run"
+            self.state.last_action = BotAction.dry_run_quote(target.action)
             self.logger.event("maker_quote", dry_run=True, maker=asdict(target))
             return
         assert self._bb_private is not None
@@ -603,7 +656,7 @@ class ArbitrageTrader:
         target.order_id = str(order.order_id)
         target.executed_amount = order.executed_amount
         self.state.active_maker = target
-        self.state.last_action = f"placed_{target.action.lower()}"
+        self.state.last_action = BotAction.placed(target.action)
         self.logger.event("maker_placed", maker=asdict(target))
 
     async def _cancel_active_maker(self, reason: str) -> None:

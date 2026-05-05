@@ -95,7 +95,8 @@ class WebApp:
             "realized_pnl_jpy": self.state.realized_pnl_jpy,
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
-            "last_action": self.state.last_action,
+            "last_action": self.state.last_action.value,
+            "last_action_description": self.state.last_action.description,
             "last_error": self.state.last_error,
             "quote": {
                 "bitbank_bid": quote.bitbank_bid,
@@ -197,6 +198,7 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
 }}
 .label {{ color: var(--muted); font-size: 12px; }}
 .value {{ margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.subvalue {{ margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.3; }}
 .chart-wrap {{
   background: var(--panel);
   border: 1px solid var(--line);
@@ -266,7 +268,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Position BTC</div><div id="position" class="value">--</div></div>
     <div class="metric"><div class="label">Realized PnL JPY</div><div id="pnl" class="value">--</div></div>
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
-    <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
+    <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div><div id="actionDescription" class="subvalue">--</div></div>
   </section>
   <section class="chart-wrap">
     <div class="legend">
@@ -341,6 +343,7 @@ function renderMetrics() {{
   setText("pnl", fmt.format(num(latest.realized_pnl_jpy || 0)));
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
+  setText("actionDescription", latest.last_action_description || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);

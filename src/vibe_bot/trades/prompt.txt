@@ -106,3 +106,13 @@ move the parameter panel to the bottom of the web page
 
 
 remove the collapsablilty, make the panel always visible
+
+
+what is action on web app? what are possible value in action?
+
+
+Add this help info to website
+
+
+
+Change last_action to a enum class and add description
