@@ -20,7 +20,7 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --order-size 0.001 \
   --max-position 0.003 \
   --maker-update-interval 0.5 \
-  --quote-interval 1.0
+  --monitor-update-interval 1.0
 ```
 
 Open the monitor:
