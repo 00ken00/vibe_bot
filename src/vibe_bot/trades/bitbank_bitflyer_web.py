@@ -198,16 +198,16 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
 }}
 .label {{ color: var(--muted); font-size: 12px; }}
 .value {{ margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-.tooltip-wrap {{ position: relative; display: inline-block; max-width: 100%; }}
+.tooltip-wrap {{ position: relative; display: block; max-width: 100%; }}
 .tooltip {{
   visibility: hidden;
   opacity: 0;
   position: absolute;
   z-index: 5;
-  left: 0;
+  right: 0;
   top: calc(100% + 8px);
-  width: max-content;
-  max-width: 280px;
+  width: min(280px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   background: #101828;
   color: #ffffff;
   border-radius: 6px;
@@ -215,6 +215,7 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
   font-size: 12px;
   line-height: 1.35;
   white-space: normal;
+  overflow-wrap: anywhere;
   box-shadow: 0 8px 20px rgba(16, 24, 40, 0.16);
   transition: opacity 120ms ease;
 }}
