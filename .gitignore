@@ -13,3 +13,4 @@ wheels/
 # secrets
 .env
 /quote_log/
+/logs/
