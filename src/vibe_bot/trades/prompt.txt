@@ -92,3 +92,17 @@ Now make the plot in web that the x axis range is fixed length (range = 1min), t
 
 
 Add a threshold offset parameter, so that for example the open long position condition changes from buy_price > -threshold to buy_price > threshold_offset-threshold
+
+
+
+I see a horizontal dashed line in the chart in web app, what is it?
+
+
+
+Add a collapsed panel in webapp that shows all parameter values
+
+
+move the parameter panel to the bottom of the web page
+
+
+remove the collapsablilty, make the panel always visible

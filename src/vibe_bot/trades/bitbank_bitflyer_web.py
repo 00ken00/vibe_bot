@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import threading
 import time
@@ -112,8 +113,36 @@ class WebApp:
             "active_maker": active,
         }
 
+    def _parameters_html(self) -> str:
+        params: list[tuple[str, object]] = [
+            ("bitbank_pair", self.config.bitbank_pair),
+            ("bitflyer_product_code", self.config.bitflyer_product_code),
+            ("threshold_jpy", self.config.threshold_jpy),
+            ("threshold_offset_jpy", self.config.threshold_offset_jpy),
+            ("order_size", self.config.order_size),
+            ("max_position", self.config.max_position),
+            ("maker_update_interval", self.config.maker_update_interval),
+            ("monitor_update_interval", self.config.monitor_update_interval),
+            ("tick_size", self.config.tick_size),
+            ("min_order_size", self.config.min_order_size),
+            ("dry_run", self.config.dry_run),
+            ("web_host", self.config.web_host),
+            ("web_port", self.config.web_port),
+            ("ws_port", self.config.ws_port),
+            ("log_dir", self.config.log_dir),
+        ]
+        rows = []
+        for name, value in params:
+            safe_name = html.escape(name)
+            safe_value = html.escape(str(value))
+            rows.append(
+                f'<div class="param"><span>{safe_name}</span><strong>{safe_value}</strong></div>'
+            )
+        return "\n".join(rows)
+
     def _html(self) -> str:
         ws_url = f"ws://{self.config.web_host}:{self.config.ws_port}"
+        parameters_html = self._parameters_html()
         return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -184,14 +213,43 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   gap: 10px;
 }}
 .error {{ color: var(--warn); min-height: 20px; }}
+.params {{
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+}}
+.params-title {{
+  color: var(--ink);
+  font-weight: 600;
+  padding: 11px 12px;
+}}
+.param-grid {{
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 1px;
+  background: var(--line);
+}}
+.param {{
+  min-height: 48px;
+  background: var(--panel);
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+}}
+.param span {{ color: var(--muted); font-size: 12px; }}
+.param strong {{ font-size: 14px; font-weight: 600; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
 @media (max-width: 980px) {{
   .metrics, .table {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  .param-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
   canvas {{ height: 390px; }}
 }}
 @media (max-width: 560px) {{
   header {{ align-items: flex-start; height: auto; gap: 8px; padding: 12px; flex-direction: column; }}
   main {{ padding: 10px; }}
   .metrics, .table {{ grid-template-columns: 1fr; }}
+  .param-grid {{ grid-template-columns: 1fr; }}
   canvas {{ height: 340px; }}
 }}
 </style>
@@ -229,6 +287,12 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Uptime</div><div id="uptime" class="value">--</div></div>
   </section>
   <div id="error" class="error"></div>
+  <section class="params">
+    <div class="params-title">Parameters</div>
+    <div class="param-grid">
+      {parameters_html}
+    </div>
+  </section>
 </main>
 <script>
 const wsUrl = "{ws_url}";
