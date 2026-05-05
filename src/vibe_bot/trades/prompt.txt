@@ -34,3 +34,7 @@ Implement all scripts under src/trades folder
 /Users/ken/Projects/vibe_bot/src/vibe_bot/trades/bitbank_bitflyer_arbitrage.py
 is too long, split the html or web app part into a different file
 
+
+
+for /Users/ken/Projects/vibe_bot/src/vibe_bot/trades/bitbank_bitflyer_arbitrage.py
+Add class docs for explaining what this class do

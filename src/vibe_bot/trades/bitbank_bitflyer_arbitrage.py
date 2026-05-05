@@ -26,6 +26,12 @@ LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
 
 @dataclass(frozen=True)
 class BotConfig:
+    """Runtime configuration for the bitbank/bitFlyer arbitrage bot.
+
+    Holds exchange symbols, strategy thresholds, sizing limits, web server
+    ports, logging paths, and whether execution is dry-run or live.
+    """
+
     bitbank_pair: str = "btc_jpy"
     bitflyer_product_code: str = "FX_BTC_JPY"
     threshold_jpy: Decimal = Decimal("1000")
@@ -44,6 +50,12 @@ class BotConfig:
 
 @dataclass
 class Quote:
+    """Current top-of-book prices used to calculate arbitrage spreads.
+
+    BUY price is the cost of buying on bitbank and selling on bitFlyer.
+    SELL price is the proceeds from selling on bitbank and buying on bitFlyer.
+    """
+
     bitbank_bid: Decimal | None = None
     bitbank_ask: Decimal | None = None
     bitflyer_bid: Decimal | None = None
@@ -77,6 +89,12 @@ class Quote:
 
 @dataclass
 class MakerOrder:
+    """The single active or desired maker quote on bitbank.
+
+    Records the arbitrage action it represents, bitbank order side/price/size,
+    the trigger spread used to choose it, and the expected bitFlyer hedge price.
+    """
+
     action: str
     side: str
     price: Decimal
@@ -90,6 +108,12 @@ class MakerOrder:
 
 @dataclass
 class BotState:
+    """Mutable runtime state shared by the strategy loop and web monitor.
+
+    Tracks latest quotes, aggregate position, realized PnL, fill counters, the
+    active maker order, and the most recent status/error for observability.
+    """
+
     quote: Quote = field(default_factory=Quote)
     position: Decimal = Decimal("0")
     realized_pnl_jpy: Decimal = Decimal("0")
@@ -128,6 +152,12 @@ def quantize_up(value: Decimal, tick: Decimal) -> Decimal:
 
 
 class TradeLogger:
+    """Persists strategy events and trade/fill records for analysis.
+
+    Events are written as JSONL for operational debugging. Trade records are
+    written as CSV with fill prices, hedge prices, slippage, position, and PnL.
+    """
+
     def __init__(self, log_dir: Path) -> None:
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -172,6 +202,12 @@ class TradeLogger:
 
 
 class Broadcaster:
+    """Fan-out helper for pushing realtime snapshots to web clients.
+
+    The web app registers websocket clients here, and the publish loop sends the
+    latest serialized bot state to each connected browser.
+    """
+
     def __init__(self) -> None:
         self._clients: set[Any] = set()
 
@@ -196,6 +232,12 @@ class Broadcaster:
 
 
 class PricePoller:
+    """Fetches public bitbank and bitFlyer quotes at a fixed interval.
+
+    Updates ``BotState.quote`` with both exchanges' best bid/ask prices so the
+    trader can evaluate spreads and the web app can plot live prices.
+    """
+
     def __init__(self, config: BotConfig, state: BotState, logger: TradeLogger) -> None:
         self.config = config
         self.state = state
@@ -226,6 +268,14 @@ class PricePoller:
 
 
 class ArbitrageTrader:
+    """Runs the arbitrage decision loop and optional live execution.
+
+    Chooses whether the single bitbank maker should represent a BUY or SELL
+    action, replaces stale maker quotes, and in live mode hedges bitbank fills
+    with bitFlyer market orders. In dry-run mode it only simulates the maker
+    quote selection and logs what would be maintained.
+    """
+
     def __init__(self, config: BotConfig, state: BotState, logger: TradeLogger) -> None:
         self.config = config
         self.state = state
