@@ -230,7 +230,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
 </main>
 <script>
 const wsUrl = "{ws_url}";
-const maxPoints = 900;
+const chartWindowMs = 60_000;
 const points = [];
 let latest = null;
 const fmt = new Intl.NumberFormat("ja-JP", {{ maximumFractionDigits: 2 }});
@@ -260,7 +260,8 @@ function connect() {{
       makerPrice: maker ? num(maker.price) : null,
       makerAction: maker ? maker.action : null
     }});
-    while (points.length > maxPoints) points.shift();
+    const cutoff = latest.timestamp * 1000 - chartWindowMs;
+    while (points.length && points[0].t < cutoff) points.shift();
     renderMetrics();
     draw();
   }};
@@ -294,8 +295,11 @@ function draw() {{
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, w, h);
+  const now = latest ? latest.timestamp * 1000 : Date.now();
+  const windowStart = now - chartWindowMs;
+  const visible = points.filter(p => p.t >= windowStart && p.t <= now);
   const values = [];
-  points.forEach(p => {{
+  visible.forEach(p => {{
     if (Number.isFinite(p.buy)) values.push(p.buy);
     if (Number.isFinite(p.sell)) values.push(p.sell);
     if (Number.isFinite(p.maker)) values.push(p.maker);
@@ -306,7 +310,7 @@ function draw() {{
   min -= pad; max += pad;
   const left = 62, right = 18, top = 16, bottom = 34;
   const cw = w - left - right, ch = h - top - bottom;
-  const x = i => left + (points.length === 1 ? 0 : i * cw / (points.length - 1));
+  const x = t => left + (t - windowStart) * cw / chartWindowMs;
   const y = v => top + (max - v) * ch / (max - min || 1);
   ctx.strokeStyle = "#d9dee8";
   ctx.lineWidth = 1;
@@ -318,16 +322,22 @@ function draw() {{
     ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w - right, yy); ctx.stroke();
     ctx.fillText(fmt.format(val), 8, yy + 4);
   }}
+  for (let i = 0; i <= 6; i++) {{
+    const xx = left + i * cw / 6;
+    const secondsAgo = 60 - i * 10;
+    ctx.fillStyle = "#667085";
+    ctx.fillText(secondsAgo === 0 ? "now" : `-${{secondsAgo}}s`, xx - 12, h - 10);
+  }}
   function line(key, color) {{
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
     let moved = false;
-    points.forEach((p, i) => {{
+    visible.forEach(p => {{
       const v = p[key];
       if (!Number.isFinite(v)) return;
-      if (!moved) {{ ctx.moveTo(x(i), y(v)); moved = true; }}
-      else ctx.lineTo(x(i), y(v));
+      if (!moved) {{ ctx.moveTo(x(p.t), y(v)); moved = true; }}
+      else ctx.lineTo(x(p.t), y(v));
     }});
     ctx.stroke();
   }}

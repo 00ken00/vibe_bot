@@ -72,3 +72,19 @@ Is quote_interval still used in the bot?
 In src/vibe_bot/trades/bitbank_bitflyer_web.py
 
 the config has type = any, makes my editor failed to recognize the type, change it to correct type, avoid all any type for better static parsing
+
+
+
+Now the dry run failed, fix it
+
+
+
+When I open the web page: http://127.0.0.1:8766/
+I got following error:
+
+Failed to open a WebSocket connection: invalid Connection header: keep-alive.
+
+You cannot access a WebSocket server directly with a browser. You need a WebSocket client.
+
+
+Now make the plot in web that the x axis range is fixed length (range = 1min), the new data appears to the right and move to left, instead of spread over x axis
