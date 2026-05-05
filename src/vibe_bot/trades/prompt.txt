@@ -38,3 +38,29 @@ is too long, split the html or web app part into a different file
 
 for /Users/ken/Projects/vibe_bot/src/vibe_bot/trades/bitbank_bitflyer_arbitrage.py
 Add class docs for explaining what this class do
+
+
+Will dry-run place actual maker to exchange?
+
+
+
+add make file that make the run more easily
+
+
+is this maker file redundant?
+I want to add the script to readme.md
+
+
+remove the makefile
+
+
+
+Is current code using websocket to get quote data from bitbank and bitflyer? 
+
+
+
+Change current ticker logic to using websocket, since websocket has shorter latency.
+Also using orderbook instead of ticker to consider the exchange depth.
+the quote data should also consider order_size as depth. 
+instead of just using best ask / best bid, estimate the order price to full fill the order size.
+

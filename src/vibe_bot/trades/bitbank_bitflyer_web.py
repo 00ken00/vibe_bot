@@ -64,7 +64,7 @@ class WebApp:
         while not stop.is_set():
             payload = self.snapshot()
             await self.broadcaster.publish(payload)
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(self.config.quote_interval)
 
     def snapshot(self) -> dict[str, Any]:
         quote = self.state.quote
@@ -87,6 +87,10 @@ class WebApp:
                 "bitbank_ask": quote.bitbank_ask,
                 "bitflyer_bid": quote.bitflyer_bid,
                 "bitflyer_ask": quote.bitflyer_ask,
+                "bitbank_bid_vwap": quote.bitbank_bid_vwap,
+                "bitbank_ask_vwap": quote.bitbank_ask_vwap,
+                "bitflyer_bid_vwap": quote.bitflyer_bid_vwap,
+                "bitflyer_ask_vwap": quote.bitflyer_ask_vwap,
                 "buy_price": quote.buy_price,
                 "sell_price": quote.sell_price,
                 "timestamp": quote.timestamp,
@@ -202,8 +206,10 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <canvas id="chart" width="1400" height="560"></canvas>
   </section>
   <section class="table">
-    <div class="metric"><div class="label">bitbank Bid / Ask</div><div id="bb" class="value">--</div></div>
-    <div class="metric"><div class="label">bitFlyer Bid / Ask</div><div id="bf" class="value">--</div></div>
+    <div class="metric"><div class="label">bitbank Top Bid / Ask</div><div id="bb" class="value">--</div></div>
+    <div class="metric"><div class="label">bitbank Est Sell / Buy</div><div id="bbDepth" class="value">--</div></div>
+    <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
+    <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
     <div class="metric"><div class="label">Uptime</div><div id="uptime" class="value">--</div></div>
   </section>
@@ -256,7 +262,9 @@ function renderMetrics() {{
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
+  setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
+  setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
   if (latest.active_maker) {{
     const m = latest.active_maker;
     setText("maker", `${{m.action}} ${{btcFmt.format(num(m.amount))}} @ ${{fmt.format(num(m.price))}}`);

@@ -10,7 +10,7 @@ The arbitrage bot lives at:
 src/trades/bitbank_bitflyer_arbitrage.py
 ```
 
-Dry-run is the default mode. It fetches real public prices, computes the BUY/SELL spreads, chooses the bitbank maker quote it would maintain, updates the web monitor, and writes logs. It does not place orders.
+Dry-run is the default mode. It streams public order books over websocket, estimates full-size execution prices for the configured order size, computes the BUY/SELL spreads, chooses the bitbank maker quote it would maintain, updates the web monitor, and writes logs. It does not place orders.
 
 Run dry-run:
 

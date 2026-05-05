@@ -16,9 +16,9 @@ from typing import Any, Iterable
 from dotenv import load_dotenv
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
-from vibe_bot.bitbank import PublicClient as BitbankPublicClient
+from vibe_bot.bitbank import PublicWebSocket as BitbankPublicWebSocket
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
-from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
+from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
@@ -50,16 +50,21 @@ class BotConfig:
 
 @dataclass
 class Quote:
-    """Current top-of-book prices used to calculate arbitrage spreads.
+    """Current order-book prices used to calculate arbitrage spreads.
 
-    BUY price is the cost of buying on bitbank and selling on bitFlyer.
-    SELL price is the proceeds from selling on bitbank and buying on bitFlyer.
+    Top-of-book fields are kept for display and maker quote placement. VWAP
+    fields estimate the average price needed to fully execute ``order_size``.
+    BUY/SELL arbitrage prices are calculated from those VWAP fields.
     """
 
     bitbank_bid: Decimal | None = None
     bitbank_ask: Decimal | None = None
     bitflyer_bid: Decimal | None = None
     bitflyer_ask: Decimal | None = None
+    bitbank_bid_vwap: Decimal | None = None
+    bitbank_ask_vwap: Decimal | None = None
+    bitflyer_bid_vwap: Decimal | None = None
+    bitflyer_ask_vwap: Decimal | None = None
     timestamp: float = 0.0
 
     @property
@@ -71,20 +76,24 @@ class Quote:
                 self.bitbank_ask,
                 self.bitflyer_bid,
                 self.bitflyer_ask,
+                self.bitbank_bid_vwap,
+                self.bitbank_ask_vwap,
+                self.bitflyer_bid_vwap,
+                self.bitflyer_ask_vwap,
             )
         )
 
     @property
     def buy_price(self) -> Decimal | None:
-        if self.bitbank_ask is None or self.bitflyer_bid is None:
+        if self.bitbank_ask_vwap is None or self.bitflyer_bid_vwap is None:
             return None
-        return self.bitbank_ask - self.bitflyer_bid
+        return self.bitbank_ask_vwap - self.bitflyer_bid_vwap
 
     @property
     def sell_price(self) -> Decimal | None:
-        if self.bitbank_bid is None or self.bitflyer_ask is None:
+        if self.bitbank_bid_vwap is None or self.bitflyer_ask_vwap is None:
             return None
-        return self.bitbank_bid - self.bitflyer_ask
+        return self.bitbank_bid_vwap - self.bitflyer_ask_vwap
 
 
 @dataclass
@@ -231,40 +240,186 @@ class Broadcaster:
             self._clients.discard(ws)
 
 
-class PricePoller:
-    """Fetches public bitbank and bitFlyer quotes at a fixed interval.
+class OrderBook:
+    """In-memory order book that can estimate full-size execution prices.
 
-    Updates ``BotState.quote`` with both exchanges' best bid/ask prices so the
-    trader can evaluate spreads and the web app can plot live prices.
+    The book stores price levels from websocket snapshots and diffs. ``vwap``
+    walks enough levels to fill the requested amount and returns ``None`` when
+    visible depth is insufficient.
+    """
+
+    def __init__(self) -> None:
+        self.bids: dict[Decimal, Decimal] = {}
+        self.asks: dict[Decimal, Decimal] = {}
+
+    def replace(self, *, bids: Iterable[Any], asks: Iterable[Any]) -> None:
+        self.bids = self._levels_to_dict(bids)
+        self.asks = self._levels_to_dict(asks)
+
+    def update(self, *, bids: Iterable[Any], asks: Iterable[Any]) -> None:
+        self._apply_levels(self.bids, bids)
+        self._apply_levels(self.asks, asks)
+
+    @property
+    def best_bid(self) -> Decimal | None:
+        return max(self.bids) if self.bids else None
+
+    @property
+    def best_ask(self) -> Decimal | None:
+        return min(self.asks) if self.asks else None
+
+    def vwap(self, side: str, amount: Decimal) -> Decimal | None:
+        if amount <= 0:
+            return None
+        book = self.asks if side == "buy" else self.bids
+        reverse = side == "sell"
+        remaining = amount
+        notional = Decimal("0")
+        for price in sorted(book, reverse=reverse):
+            size = book[price]
+            if size <= 0:
+                continue
+            take = min(size, remaining)
+            notional += price * take
+            remaining -= take
+            if remaining <= 0:
+                return notional / amount
+        return None
+
+    def _levels_to_dict(self, levels: Iterable[Any]) -> dict[Decimal, Decimal]:
+        result: dict[Decimal, Decimal] = {}
+        for price, size in self._iter_levels(levels):
+            if size > 0:
+                result[price] = size
+        return result
+
+    def _apply_levels(self, book: dict[Decimal, Decimal], levels: Iterable[Any]) -> None:
+        for price, size in self._iter_levels(levels):
+            if size <= 0:
+                book.pop(price, None)
+            else:
+                book[price] = size
+
+    def _iter_levels(self, levels: Iterable[Any]) -> Iterable[tuple[Decimal, Decimal]]:
+        for level in levels or []:
+            if isinstance(level, dict):
+                price = level.get("price")
+                size = level.get("size") or level.get("amount")
+            else:
+                price, size = level[0], level[1]
+            yield Decimal(str(price)), Decimal(str(size))
+
+
+class WebSocketQuoteFeed:
+    """Maintains exchange order books from public websocket streams.
+
+    Subscribes to bitbank depth and bitFlyer board channels, updates local order
+    books from snapshots/diffs, and publishes a ``Quote`` whose executable
+    prices are based on the configured order size instead of the best level.
     """
 
     def __init__(self, config: BotConfig, state: BotState, logger: TradeLogger) -> None:
         self.config = config
         self.state = state
         self.logger = logger
+        self._bitbank = OrderBook()
+        self._bitflyer = OrderBook()
+        self._lock = asyncio.Lock()
 
     async def run(self, stop: asyncio.Event) -> None:
-        async with BitbankPublicClient() as bitbank, BitflyerPublicClient() as bitflyer:
-            while not stop.is_set():
-                try:
-                    bb_task = asyncio.create_task(bitbank.ticker(self.config.bitbank_pair))
-                    bf_task = asyncio.create_task(
-                        bitflyer.ticker(self.config.bitflyer_product_code)
+        while not stop.is_set():
+            try:
+                async with (
+                    BitbankPublicWebSocket() as bitbank,
+                    BitflyerPublicWebSocket() as bitflyer,
+                ):
+                    await bitbank.subscribe(f"depth_whole_{self.config.bitbank_pair}")
+                    await bitbank.subscribe(f"depth_diff_{self.config.bitbank_pair}")
+                    await bitflyer.subscribe(
+                        f"lightning_board_snapshot_{self.config.bitflyer_product_code}"
                     )
-                    bb, bf = await asyncio.gather(bb_task, bf_task)
-                    self.state.quote = Quote(
-                        bitbank_bid=bb.buy,
-                        bitbank_ask=bb.sell,
-                        bitflyer_bid=bf.best_bid,
-                        bitflyer_ask=bf.best_ask,
-                        timestamp=time.time(),
+                    await bitflyer.subscribe(
+                        f"lightning_board_{self.config.bitflyer_product_code}"
                     )
-                    self.state.last_error = ""
-                except Exception as exc:
-                    self.state.last_error = f"price poll failed: {exc}"
-                    self.logger.event("error", message=self.state.last_error)
-                    LOGGER.exception("price poll failed")
-                await asyncio.sleep(self.config.quote_interval)
+                    self.logger.event("quote_ws_connected")
+                    tasks = [
+                        asyncio.create_task(self._run_bitbank(bitbank, stop)),
+                        asyncio.create_task(self._run_bitflyer(bitflyer, stop)),
+                        asyncio.create_task(stop.wait()),
+                    ]
+                    try:
+                        done, pending = await asyncio.wait(
+                            tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for task in done:
+                            task.result()
+                    finally:
+                        for task in tasks:
+                            task.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as exc:
+                if stop.is_set():
+                    return
+                self.state.last_error = f"quote websocket failed: {exc}"
+                self.logger.event("error", message=self.state.last_error)
+                LOGGER.exception("quote websocket failed")
+                await asyncio.sleep(1.0)
+
+    async def _run_bitbank(
+        self, ws: BitbankPublicWebSocket, stop: asyncio.Event
+    ) -> None:
+        async for msg in ws.messages():
+            if stop.is_set():
+                return
+            room = str(msg.get("room_name") or "")
+            message = msg.get("message") if isinstance(msg, dict) else None
+            data = message.get("data") if isinstance(message, dict) else None
+            if not isinstance(data, dict):
+                continue
+            bids = data.get("bids") or []
+            asks = data.get("asks") or []
+            async with self._lock:
+                if room.startswith("depth_whole_"):
+                    self._bitbank.replace(bids=bids, asks=asks)
+                elif room.startswith("depth_diff_"):
+                    self._bitbank.update(bids=bids, asks=asks)
+                await self._publish_quote_locked()
+
+    async def _run_bitflyer(
+        self, ws: BitflyerPublicWebSocket, stop: asyncio.Event
+    ) -> None:
+        async for msg in ws.messages():
+            if stop.is_set():
+                return
+            channel = str(msg.get("channel") or "")
+            data = msg.get("message")
+            if not isinstance(data, dict):
+                continue
+            bids = data.get("bids") or []
+            asks = data.get("asks") or []
+            async with self._lock:
+                if "board_snapshot" in channel:
+                    self._bitflyer.replace(bids=bids, asks=asks)
+                elif "board_" in channel:
+                    self._bitflyer.update(bids=bids, asks=asks)
+                await self._publish_quote_locked()
+
+    async def _publish_quote_locked(self) -> None:
+        amount = self.config.order_size
+        quote = Quote(
+            bitbank_bid=self._bitbank.best_bid,
+            bitbank_ask=self._bitbank.best_ask,
+            bitflyer_bid=self._bitflyer.best_bid,
+            bitflyer_ask=self._bitflyer.best_ask,
+            bitbank_bid_vwap=self._bitbank.vwap("sell", amount),
+            bitbank_ask_vwap=self._bitbank.vwap("buy", amount),
+            bitflyer_bid_vwap=self._bitflyer.vwap("sell", amount),
+            bitflyer_ask_vwap=self._bitflyer.vwap("buy", amount),
+            timestamp=time.time(),
+        )
+        self.state.quote = quote
+        if quote.ready:
+            self.state.last_error = ""
 
 
 class ArbitrageTrader:
@@ -368,17 +523,19 @@ class ArbitrageTrader:
         assert quote.bitbank_ask is not None
         assert quote.bitflyer_bid is not None
         assert quote.bitflyer_ask is not None
+        assert quote.bitflyer_bid_vwap is not None
+        assert quote.bitflyer_ask_vwap is not None
         if action == "BUY":
             passive = quote.bitbank_bid + self.config.tick_size
-            profitable = quote.bitflyer_bid + trigger
+            profitable = quote.bitflyer_bid_vwap + trigger
             price = quantize_down(min(passive, profitable), self.config.tick_size)
-            expected_hedge = quote.bitflyer_bid
+            expected_hedge = quote.bitflyer_bid_vwap
             side = "buy"
         else:
             passive = quote.bitbank_ask - self.config.tick_size
-            profitable = quote.bitflyer_ask + trigger
+            profitable = quote.bitflyer_ask_vwap + trigger
             price = quantize_up(max(passive, profitable), self.config.tick_size)
-            expected_hedge = quote.bitflyer_ask
+            expected_hedge = quote.bitflyer_ask_vwap
             side = "sell"
         if price <= 0:
             return None
@@ -532,7 +689,7 @@ async def run_bot(config: BotConfig) -> None:
     broadcaster = Broadcaster()
     stop = asyncio.Event()
     web = WebApp(config, state, broadcaster)
-    price_poller = PricePoller(config, state, logger)
+    quote_feed = WebSocketQuoteFeed(config, state, logger)
     trader = ArbitrageTrader(config, state, logger)
 
     def request_stop() -> None:
@@ -551,7 +708,7 @@ async def run_bot(config: BotConfig) -> None:
     print("mode: DRY RUN" if config.dry_run else "mode: LIVE")
 
     tasks = [
-        asyncio.create_task(price_poller.run(stop)),
+        asyncio.create_task(quote_feed.run(stop)),
         asyncio.create_task(trader.run(stop)),
         asyncio.create_task(web.run_ws(stop)),
         asyncio.create_task(web.publish_loop(stop)),
@@ -584,7 +741,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--order-size", type=decimal_arg, default=Decimal("0.001"))
     parser.add_argument("--max-position", type=decimal_arg, default=Decimal("0.003"))
     parser.add_argument("--maker-update-interval", type=float, default=0.5)
-    parser.add_argument("--quote-interval", type=float, default=1.0)
+    parser.add_argument(
+        "--quote-interval",
+        type=float,
+        default=1.0,
+        help="seconds between browser websocket snapshot updates",
+    )
     parser.add_argument("--tick-size", type=decimal_arg, default=Decimal("1"))
     parser.add_argument("--min-order-size", type=decimal_arg, default=Decimal("0.0001"))
     parser.add_argument("--bitbank-pair", default="btc_jpy")
