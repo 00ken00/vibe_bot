@@ -3,6 +3,7 @@
     "asyncio",
     "bitbank",
     "bitflyer",
+    "dotenv",
     "gcloud",
     "hmac",
     "httpx",
