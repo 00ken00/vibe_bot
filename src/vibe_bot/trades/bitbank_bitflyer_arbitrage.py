@@ -25,10 +25,10 @@ from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_arg
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json_dict
+from vibe_bot.trades.bitbank_bitflyer_utils import jst_iso
 from vibe_bot.trades.bitbank_bitflyer_utils import local_date_stamp
 from vibe_bot.trades.bitbank_bitflyer_utils import quantize_down
 from vibe_bot.trades.bitbank_bitflyer_utils import quantize_up
-from vibe_bot.trades.bitbank_bitflyer_utils import utc_iso
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
@@ -265,7 +265,7 @@ class TradeLogger:
         self._csv_file.close()
 
     def event(self, event_type: str, **payload: object) -> None:
-        row = {"timestamp": utc_iso(), "event": event_type, **payload}
+        row = {"timestamp": jst_iso(), "event": event_type, **payload}
         with self.events_path.open("a") as f:
             f.write(json.dumps(decimal_to_json(row), separators=(",", ":")) + "\n")
 
@@ -856,7 +856,7 @@ class ArbitrageTrader:
         self.state.filled_base += amount
         self.state.trade_count += 1
         self.logger.trade(
-            timestamp=utc_iso(),
+            timestamp=jst_iso(),
             action=maker.action,
             bitbank_order_id=maker.order_id,
             bitbank_side=maker.side,

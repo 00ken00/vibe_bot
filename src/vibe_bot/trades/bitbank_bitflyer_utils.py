@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from pathlib import Path
 import time
 
 
 Jsonable = None | bool | int | float | str | list[object] | dict[str, object]
+JST = ZoneInfo("Asia/Tokyo")
 
 
 def decimal_to_json(value: object) -> Jsonable:
@@ -34,12 +36,12 @@ def decimal_to_json_dict(value: dict[str, object]) -> dict[str, object]:
     return converted
 
 
-def utc_iso(ts: float | None = None) -> str:
-    return datetime.fromtimestamp(ts or time.time(), timezone.utc).isoformat()
+def jst_iso(ts: float | None = None) -> str:
+    return datetime.fromtimestamp(ts or time.time(), JST).isoformat()
 
 
 def local_date_stamp() -> str:
-    return datetime.now().strftime("%Y%m%d")
+    return datetime.now(JST).strftime("%Y%m%d")
 
 
 def quantize_down(value: Decimal, tick: Decimal) -> Decimal:
