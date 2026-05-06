@@ -179,6 +179,13 @@ class MakerOrder:
 
 
 @dataclass
+class ActionHistoryEntry:
+    timestamp: float
+    action: BotAction
+    description: str
+
+
+@dataclass
 class BotState:
     """Mutable runtime state shared by the strategy loop and web monitor.
 
@@ -193,8 +200,23 @@ class BotState:
     trade_count: int = 0
     active_maker: MakerOrder | None = None
     last_action: BotAction = BotAction.IDLE
+    action_history: list[ActionHistoryEntry] = field(default_factory=list)
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
+
+    def set_action(self, action: BotAction) -> None:
+        if action == self.last_action and self.action_history:
+            return
+        self.last_action = action
+        self.action_history.append(
+            ActionHistoryEntry(
+                timestamp=time.time(),
+                action=action,
+                description=action.description,
+            )
+        )
+        if len(self.action_history) > 100:
+            del self.action_history[:-100]
 
 
 BookLevel = Mapping[str, object] | Sequence[object]
@@ -522,16 +544,16 @@ class ArbitrageTrader:
     async def _tick(self) -> None:
         quote = self.state.quote
         if not quote.ready:
-            self.state.last_action = BotAction.WAITING_FOR_QUOTES
+            self.state.set_action(BotAction.WAITING_FOR_QUOTES)
             return
         await self._refresh_active_maker()
         target = self._choose_target()
         if target is None:
-            self.state.last_action = BotAction.IDLE
+            self.state.set_action(BotAction.IDLE)
             await self._cancel_active_maker("no_target")
             return
         if self._same_maker(self.state.active_maker, target):
-            self.state.last_action = BotAction.maintain(target.action)
+            self.state.set_action(BotAction.maintain(target.action))
             return
         await self._replace_maker(target)
 
@@ -718,7 +740,7 @@ class ArbitrageTrader:
         if self.config.dry_run:
             target.order_id = "DRY-RUN"
             self.state.active_maker = target
-            self.state.last_action = BotAction.dry_run_quote(target.action)
+            self.state.set_action(BotAction.dry_run_quote(target.action))
             self.logger.event("maker_quote", dry_run=True, maker=asdict(target))
             return
         assert self._bb_private is not None
@@ -753,7 +775,7 @@ class ArbitrageTrader:
         target.order_id = str(order.order_id)
         target.executed_amount = order.executed_amount
         self.state.active_maker = target
-        self.state.last_action = BotAction.placed(target.action)
+        self.state.set_action(BotAction.placed(target.action))
         self.logger.event("maker_placed", maker=asdict(target))
 
     async def _cancel_active_maker(self, reason: str) -> None:

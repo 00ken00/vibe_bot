@@ -98,6 +98,14 @@ class WebApp:
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
             "last_action_description": self.state.last_action.description,
+            "action_history": [
+                {
+                    "timestamp": entry.timestamp,
+                    "action": entry.action.value,
+                    "description": entry.description,
+                }
+                for entry in reversed(self.state.action_history[-100:])
+            ],
             "last_error": self.state.last_error,
             "quote": {
                 "bitbank_bid": quote.bitbank_bid,
@@ -242,6 +250,42 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   grid-template-columns: repeat(4, minmax(170px, 1fr));
   gap: 10px;
 }}
+.history {{
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}}
+.history-title {{
+  color: var(--ink);
+  font-weight: 600;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+}}
+.history-table {{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}}
+.history-table th,
+.history-table td {{
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}}
+.history-table th {{
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}}
+.history-table td {{
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}}
+.history-time {{ width: 150px; color: var(--muted); font-variant-numeric: tabular-nums; }}
+.history-action {{ width: 190px; font-weight: 600; }}
+.history-empty {{ color: var(--muted); padding: 10px 12px; }}
 .error {{ color: var(--warn); min-height: 20px; }}
 .params {{
   background: var(--panel);
@@ -316,6 +360,13 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
     <div class="metric"><div class="label">Uptime</div><div id="uptime" class="value">--</div></div>
   </section>
+  <section class="history">
+    <div class="history-title">Bot Action History</div>
+    <table class="history-table">
+      <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th></tr></thead>
+      <tbody id="actionHistory"><tr><td colspan="3" class="history-empty">--</td></tr></tbody>
+    </table>
+  </section>
   <div id="error" class="error"></div>
   <section class="params">
     <div class="params-title">Parameters</div>
@@ -334,6 +385,15 @@ const btcFmt = new Intl.NumberFormat("en-US", {{ minimumFractionDigits: 4, maxim
 const el = id => document.getElementById(id);
 function num(v) {{ return v == null ? null : Number(v); }}
 function setText(id, value) {{ el(id).textContent = value; }}
+function escapeHtml(value) {{
+  return String(value).replace(/[&<>"']/g, c => ({{
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }}[c]));
+}}
 function effectiveMakerSpread(maker, quote) {{
   if (!maker || !quote) return null;
   const price = num(maker.price);
@@ -401,6 +461,22 @@ function renderMetrics() {{
   }}
   setText("uptime", `${{Math.round(num(latest.uptime_sec || 0))}}s`);
   setText("error", latest.last_error || "");
+  renderActionHistory();
+}}
+function renderActionHistory() {{
+  const rows = latest.action_history || [];
+  const body = el("actionHistory");
+  if (!rows.length) {{
+    body.innerHTML = `<tr><td colspan="3" class="history-empty">--</td></tr>`;
+    return;
+  }}
+  body.innerHTML = rows.slice(0, 100).map(row => {{
+    const date = new Date(num(row.timestamp) * 1000);
+    const timeText = Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : "--";
+    const action = row.action || "--";
+    const description = row.description || "";
+    return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td></tr>`;
+  }}).join("");
 }}
 function draw() {{
   const canvas = el("chart");
