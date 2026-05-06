@@ -56,3 +56,33 @@ Show all options:
 ```bash
 python3 src/trades/bitbank_bitflyer_arbitrage.py --help
 ```
+
+## Docker JupyterLab Environment
+
+Build the image on the remote server:
+
+```bash
+docker build -t vibe-bot-jupyter .
+```
+
+Run JupyterLab with the repo mounted, so `git pull` updates are reflected immediately:
+
+```bash
+docker run --rm -it \
+  --name vibe-bot-jupyter \
+  -p 8888:8888 \
+  -p 8765:8765 \
+  -p 8766:8766 \
+  -v "$PWD":/workspace/vibe_bot \
+  --env-file .env \
+  vibe-bot-jupyter
+```
+
+Inside JupyterLab terminal, run:
+
+```bash
+git pull
+python3 src/trades/bitbank_bitflyer_arbitrage.py --help
+```
+
+The image does not copy this repository. It only copies `requirements-dev.lock` during build, installs Python/Jupyter dependencies from that lock file, and uses `PYTHONPATH=/workspace/vibe_bot/src`.
