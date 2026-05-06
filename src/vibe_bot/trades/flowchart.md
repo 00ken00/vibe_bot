@@ -178,6 +178,7 @@ sequenceDiagram
         Trader->>Logger: event maker_removed
     else live maker
         Trader->>Trader: active_maker = None
+        Trader->>Trader: Action = CANCELING_MAKER
         Trader->>Bitbank: cancel_order(pair, order_id)
         Bitbank->>BitbankHttp: signed REST request
         BitbankHttp-->>Logger: event private_api_trace<br/>exchange=bitbank method=POST raw_response
@@ -185,9 +186,11 @@ sequenceDiagram
         alt success
             Bitbank-->>Trader: canceled order
             Trader->>Logger: event maker_canceled
+            Trader->>Trader: Action = CANCELED_MAKER
         else failure
             Bitbank-->>Trader: error
             Trader->>Logger: event maker_cancel_failed
+            Trader->>Trader: Action = CANCEL_FAILED
             Trader-->>Trader: raise
         end
     end

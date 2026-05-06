@@ -66,6 +66,18 @@ class BotAction(Enum):
         "placed_sell",
         "Live mode placed a real SELL-action bitbank maker order.",
     )
+    CANCELING_MAKER = (
+        "canceling_maker",
+        "Canceling the active bitbank maker order.",
+    )
+    CANCELED_MAKER = (
+        "canceled_maker",
+        "Canceled or removed the active bitbank maker order.",
+    )
+    CANCEL_FAILED = (
+        "cancel_failed",
+        "Failed to cancel the active bitbank maker order.",
+    )
 
     def __init__(self, value: str, description: str) -> None:
         self._value_ = value
@@ -783,8 +795,10 @@ class ArbitrageTrader:
         if maker is None:
             return
         self.state.active_maker = None
+        self.state.set_action(BotAction.CANCELING_MAKER)
         if self.config.dry_run or maker.order_id in (None, "DRY-RUN"):
             self.logger.event("maker_removed", reason=reason, dry_run=True, maker=asdict(maker))
+            self.state.set_action(BotAction.CANCELED_MAKER)
             return
         assert self._bb_private is not None
         try:
@@ -792,10 +806,12 @@ class ArbitrageTrader:
                 pair=self.config.bitbank_pair, order_id=maker.order_id
             )
             self.logger.event("maker_canceled", reason=reason, maker=asdict(maker))
+            self.state.set_action(BotAction.CANCELED_MAKER)
         except Exception as exc:
             self.logger.event(
                 "maker_cancel_failed", reason=reason, error=str(exc), maker=asdict(maker)
             )
+            self.state.set_action(BotAction.CANCEL_FAILED)
             raise
 
     async def _refresh_active_maker(self) -> None:
