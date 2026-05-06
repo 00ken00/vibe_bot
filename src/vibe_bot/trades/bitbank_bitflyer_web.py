@@ -376,7 +376,8 @@ function renderMetrics() {{
   setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
   if (latest.active_maker) {{
     const m = latest.active_maker;
-    setText("maker", `${{m.action}} ${{btcFmt.format(num(m.amount))}} @ ${{fmt.format(num(m.price))}}`);
+    const account = m.position_side ? `margin ${{m.position_side}}` : "spot";
+    setText("maker", `${{m.action}} ${{account}} ${{btcFmt.format(num(m.amount))}} @ ${{fmt.format(num(m.price))}}`);
   }} else {{
     setText("maker", "--");
   }}
@@ -450,8 +451,9 @@ function draw() {{
   }}
   if (latest && latest.active_maker) {{
     const m = latest.active_maker;
+    const account = m.position_side ? `margin ${{m.position_side}}` : "spot";
     ctx.fillStyle = "#0f9f6e";
-    ctx.fillText(`maker target ${{m.action}} spread ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
+    ctx.fillText(`maker target ${{m.action}} ${{account}} spread ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
   }}
 }}
 connect();

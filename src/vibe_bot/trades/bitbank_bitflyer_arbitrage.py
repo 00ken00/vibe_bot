@@ -19,6 +19,7 @@ from websockets.asyncio.server import ServerConnection
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
 from vibe_bot.bitbank import PublicWebSocket as BitbankPublicWebSocket
+from vibe_bot.bitbank.models import PositionSide as BitbankPositionSide
 from vibe_bot.bitbank.models import Side as BitbankSide
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
@@ -160,6 +161,7 @@ class MakerOrder:
 
     action: str
     side: BitbankSide
+    position_side: BitbankPositionSide | None
     price: Decimal
     amount: Decimal
     trigger_price: Decimal
@@ -607,18 +609,23 @@ class ArbitrageTrader:
         assert quote.bitflyer_ask is not None
         assert quote.bitflyer_bid_vwap is not None
         assert quote.bitflyer_ask_vwap is not None
+        position_side: BitbankPositionSide | None = None
         if action == "BUY":
             passive = quote.bitbank_ask - self.config.tick_size
             profitable = quote.bitflyer_bid_vwap + trigger
             price = quantize_down(min(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_bid_vwap
             side = "buy"
+            if self.state.position < 0:
+                position_side = "short"
         else:
             passive = quote.bitbank_bid + self.config.tick_size
             profitable = quote.bitflyer_ask_vwap + trigger
             price = quantize_up(max(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_ask_vwap
             side = "sell"
+            if self.state.position <= 0:
+                position_side = "short"
         if action == "BUY" and price >= quote.bitbank_ask:
             return None
         if action == "SELL" and price <= quote.bitbank_bid:
@@ -628,6 +635,7 @@ class ArbitrageTrader:
         return MakerOrder(
             action=action,
             side=side,
+            position_side=position_side,
             price=price,
             amount=amount,
             trigger_price=trigger,
@@ -682,6 +690,7 @@ class ArbitrageTrader:
             amount=target.amount,
             price=target.price,
             post_only=True,
+            position_side=target.position_side,
         )
         target.order_id = str(order.order_id)
         target.executed_amount = order.executed_amount

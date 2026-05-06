@@ -65,14 +65,18 @@ flowchart TD
     BP --> BPROF[profitable = bitFlyer bid VWAP + trigger]
     BPROF --> BPRICE["price = floor_to_tick min(passive, profitable)"]
     BPRICE --> BVALID{"price < bitbank_ask and price > 0?"}
-    BVALID -- yes --> BMAKER[Build bitbank buy maker]
+    BVALID -- yes --> BPOS{"current position < 0?"}
+    BPOS -- yes --> BCMARGIN["Build bitbank margin buy maker, position_side = short"]
+    BPOS -- no --> BCSPOT[Build bitbank spot buy maker]
     BVALID -- no --> NONEB[No maker target]
 
     A -- SELL --> SP[passive = bitbank_bid + tick_size]
     SP --> SPROF[profitable = bitFlyer ask VWAP + trigger]
     SPROF --> SPRICE["price = ceil_to_tick max(passive, profitable)"]
     SPRICE --> SVALID{"price > bitbank_bid and price > 0?"}
-    SVALID -- yes --> SMAKER[Build bitbank sell maker]
+    SVALID -- yes --> SPOS{"current position <= 0?"}
+    SPOS -- yes --> SMARGIN["Build bitbank margin sell maker, position_side = short"]
+    SPOS -- no --> SSSPOT[Build bitbank spot sell maker]
     SVALID -- no --> NONES[No maker target]
 ```
 
@@ -94,7 +98,7 @@ sequenceDiagram
         Trader->>Trader: Action = QUOTE_BUY_DRY_RUN or QUOTE_SELL_DRY_RUN
     else live
         Trader->>Logger: event maker_place_attempt
-        Trader->>Bitbank: place_order(pair, side, limit, amount, price, post_only=True)
+        Trader->>Bitbank: place_order(pair, side, limit, amount, price, post_only=True, position_side)
         Bitbank->>BitbankHttp: signed REST request
         BitbankHttp-->>Logger: event private_api_trace<br/>exchange=bitbank method=POST raw_response
         Bitbank-->>Trader: Order
