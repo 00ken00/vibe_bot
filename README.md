@@ -68,7 +68,7 @@ docker build -t vibe-bot-jupyter .
 Run JupyterLab with the repo mounted, so `git pull` updates are reflected immediately:
 
 ```bash
-docker run --rm -it \
+docker run --rm -d \
   --name vibe-bot-jupyter \
   -p 8888:8888 \
   -p 8765:8765 \
