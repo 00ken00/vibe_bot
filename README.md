@@ -45,6 +45,12 @@ Live trading is explicit and will place real bitbank maker orders and bitFlyer h
 python3 src/trades/bitbank_bitflyer_arbitrage.py --live
 ```
 
+To place live bitbank maker orders without sending the bitFlyer hedge order:
+
+```bash
+python3 src/trades/bitbank_bitflyer_arbitrage.py --live --disable-bitflyer-hedge
+```
+
 Show all options:
 
 ```bash
