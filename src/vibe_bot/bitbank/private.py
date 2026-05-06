@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal
-from typing import Any
+from typing import Any, Callable
 
 from .errors import AuthError
 from .http import HttpClient
@@ -49,6 +49,7 @@ class PrivateClient:
         api_key: str | None = None,
         api_secret: str | None = None,
         http: HttpClient | None = None,
+        private_trace: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         if http is not None:
             self._http = http
@@ -61,7 +62,11 @@ class PrivateClient:
                     20003,
                     message="BITBANK_API_KEY / BITBANK_API_SECRET not set",
                 )
-            self._http = HttpClient(api_key=key, api_secret=secret)
+            self._http = HttpClient(
+                api_key=key,
+                api_secret=secret,
+                private_trace=private_trace,
+            )
             self._owns_http = True
 
     async def aclose(self) -> None:

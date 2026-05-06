@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlencode
 
 import httpx
@@ -37,12 +37,14 @@ class HttpClient:
         rate_limiter: RateLimiter | None = None,
         timeout: float = 10.0,
         client: httpx.AsyncClient | None = None,
+        private_trace: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         self._api_key = api_key
         self._api_secret = api_secret
         self._limiter = rate_limiter or RateLimiter()
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(timeout=timeout)
+        self._private_trace = private_trace
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -132,6 +134,18 @@ class HttpClient:
             )
         except httpx.HTTPError as e:
             raise TransportError(f"{type(e).__name__}: {e}") from e
+
+        if signed and self._private_trace is not None:
+            self._private_trace({
+                "exchange": "bitflyer",
+                "method": method,
+                "path": path,
+                "signed_path": signed_path,
+                "params": params,
+                "json_body": json_body,
+                "http_status": resp.status_code,
+                "raw_response": resp.text,
+            })
 
         return self._parse(resp)
 

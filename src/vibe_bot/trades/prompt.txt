@@ -120,3 +120,80 @@ Change last_action to a enum class and add description
 
 
 Move the description of action to a hover tooltip style, only mouse hover on the action value, the description will show up, otherwise it will be hidden
+
+
+The tooltip overflows the viewport, fix it
+
+
+How is bitbank_bid bitbank_ask used in this code? (not bitbank_bid_vwap)
+
+
+
+When I run with --live option, I encounter the placing order error.
+Implement a minimal maker place code in scratch.py file, so that I can test it
+
+
+
+rewrite the scratch code, do not use any parse arg, use direct arguments, that is more
+easily used in ipython
+
+
+remove __file__ part since it is not runnable in ipython
+
+
+Why the BUY maker order using quote.bitbank_bid + self.config.tick_size,
+shouldn't it use bitbank_ask - self.config.tick_size? 
+
+
+
+But   bitbank_bid + tick_size
+may >=
+bitbank_ask
+
+so that the maker order can not be placed,
+use bitbank_ask - tick_size instead
+
+
+
+what is 
+
+        if price >= quote.bitbank_ask or price <= quote.bitbank_bid:
+            return None
+?
+
+
+should not it depedent on the side?
+
+
+
+Currently the log does not contain the order placing attempting,
+add an order placing log before the actual placing code, so that I can retrieve what order price size or etc. is attempted to place
+
+
+
+Add event before any bitbank / bitflyer private API call for tracing
+
+
+draw a flowchart or sequence diagram for the trade logic, including the condition and timing of each API call and log
+
+
+
+draw using mermaid markdown and create a flowchart.md under the same directory
+
+
+I got this rich text error:
+
+Unable to render rich display
+
+Parse error on line 5:
+... = floor_to_tick min(passive, profitable
+-----------------------^
+Expecting 'SQE', 'DOUBLECIRCLEEND', 'PE', '-)', 'STADIUMEND', 'SUBROUTINEEND', 'PIPE', 'CYLINDEREND', 'DIAMOND_STOP', 'TAGEND', 'TRAPEND', 'INVTRAPEND', 'UNICODE_TEXT', 'TEXT', 'TAGSTART', got 'PS'
+
+For more information, see https://docs.github.com/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams#creating-mermaid-diagrams
+
+
+
+it is currently using _log_private_api_call before every api call and the parameters are
+rewrite every time, which is a little redundant.
+Can you find a way to log every private api call with parameters and raw response globally?

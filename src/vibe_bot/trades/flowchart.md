@@ -83,6 +83,7 @@ sequenceDiagram
     participant Trader
     participant Logger
     participant Bitbank
+    participant BitbankHttp
 
     Trader->>Trader: _replace_maker(target)
     Trader->>Trader: _cancel_active_maker("replace")
@@ -93,8 +94,9 @@ sequenceDiagram
         Trader->>Trader: Action = QUOTE_BUY_DRY_RUN or QUOTE_SELL_DRY_RUN
     else live
         Trader->>Logger: event maker_place_attempt
-        Trader->>Logger: event private_api_call<br/>exchange=bitbank method=place_order
         Trader->>Bitbank: place_order(pair, side, limit, amount, price, post_only=True)
+        Bitbank->>BitbankHttp: signed REST request
+        BitbankHttp-->>Logger: event private_api_trace<br/>exchange=bitbank method=POST raw_response
         Bitbank-->>Trader: Order
         Trader->>Trader: active_maker = placed target
         Trader->>Trader: Action = PLACED_BUY or PLACED_SELL
@@ -109,26 +111,31 @@ sequenceDiagram
     participant Trader
     participant Logger
     participant Bitbank
+    participant BitbankHttp
     participant BitFlyer
+    participant BitFlyerHttp
 
     Trader->>Trader: _refresh_active_maker()
 
     alt no active maker or dry_run
         Trader-->>Trader: return
     else live active maker
-        Trader->>Logger: event private_api_call<br/>exchange=bitbank method=order_info
         Trader->>Bitbank: order_info(pair, order_id)
+        Bitbank->>BitbankHttp: signed REST request
+        BitbankHttp-->>Logger: event private_api_trace<br/>exchange=bitbank method=POST raw_response
         Bitbank-->>Trader: Order
 
         alt executed_amount increased
             Trader->>Trader: _hedge_fill(delta)
-            Trader->>Logger: event private_api_call<br/>exchange=bitflyer method=send_child_order
             Trader->>BitFlyer: send_child_order(MARKET, IOC)
+            BitFlyer->>BitFlyerHttp: signed REST request
+            BitFlyerHttp-->>Logger: event private_api_trace<br/>exchange=bitflyer method=POST raw_response
             BitFlyer-->>Trader: child_order_acceptance_id
 
             loop until average execution found or 3s timeout
-                Trader->>Logger: event private_api_call<br/>exchange=bitflyer method=executions
                 Trader->>BitFlyer: executions(child_order_acceptance_id)
+                BitFlyer->>BitFlyerHttp: signed REST request
+                BitFlyerHttp-->>Logger: event private_api_trace<br/>exchange=bitflyer method=GET raw_response
                 BitFlyer-->>Trader: executions
             end
 
@@ -150,6 +157,7 @@ sequenceDiagram
     participant Trader
     participant Logger
     participant Bitbank
+    participant BitbankHttp
 
     Trader->>Trader: _cancel_active_maker(reason)
 
@@ -160,8 +168,9 @@ sequenceDiagram
         Trader->>Logger: event maker_removed
     else live maker
         Trader->>Trader: active_maker = None
-        Trader->>Logger: event private_api_call<br/>exchange=bitbank method=cancel_order
         Trader->>Bitbank: cancel_order(pair, order_id)
+        Bitbank->>BitbankHttp: signed REST request
+        BitbankHttp-->>Logger: event private_api_trace<br/>exchange=bitbank method=POST raw_response
 
         alt success
             Bitbank-->>Trader: canceled order
@@ -178,8 +187,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Before any private API call] --> LOG[log: private_api_call]
-    LOG --> EX{exchange}
+    A[Private client method] --> H[Exchange HTTP client]
+    H --> R[Signed REST request]
+    R --> LOG[log: private_api_trace with params, body, status, raw_response]
+    LOG --> P[Parse response and map API errors]
+    P --> EX{exchange}
     EX -- bitbank --> BB{method}
     BB --> BB1[place_order]
     BB --> BB2[cancel_order]

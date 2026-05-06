@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlencode
 
 import httpx
@@ -44,6 +44,7 @@ class HttpClient:
         client: httpx.AsyncClient | None = None,
         auth_mode: str = "time_window",
         time_window_ms: str = DEFAULT_TIME_WINDOW_MS,
+        private_trace: Callable[[dict[str, object]], None] | None = None,
     ) -> None:
         if auth_mode not in ("time_window", "nonce"):
             raise ValueError(f"auth_mode must be 'time_window' or 'nonce', got {auth_mode!r}")
@@ -54,6 +55,7 @@ class HttpClient:
         self._client = client or httpx.AsyncClient(timeout=timeout)
         self._auth_mode = auth_mode
         self._time_window_ms = time_window_ms
+        self._private_trace = private_trace
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -161,6 +163,18 @@ class HttpClient:
             )
         except httpx.HTTPError as e:
             raise TransportError(str(e)) from e
+
+        if signed and self._private_trace is not None:
+            self._private_trace({
+                "exchange": "bitbank",
+                "method": method.upper(),
+                "url": url,
+                "sign_target": sign_target,
+                "params": params,
+                "json_body": json_body,
+                "http_status": resp.status_code,
+                "raw_response": resp.text,
+            })
 
         return self._parse(resp)
 

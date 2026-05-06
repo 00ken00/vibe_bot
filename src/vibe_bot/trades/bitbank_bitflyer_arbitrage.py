@@ -515,8 +515,12 @@ class ArbitrageTrader:
 
     async def run(self, stop: asyncio.Event) -> None:
         if not self.config.dry_run:
-            self._bb_private = BitbankPrivateClient()
-            self._bf_private = BitflyerPrivateClient()
+            self._bb_private = BitbankPrivateClient(
+                private_trace=self._log_private_api_trace
+            )
+            self._bf_private = BitflyerPrivateClient(
+                private_trace=self._log_private_api_trace
+            )
         try:
             while not stop.is_set():
                 try:
@@ -640,15 +644,8 @@ class ArbitrageTrader:
             and current.amount == target.amount
         )
 
-    def _log_private_api_call(
-        self, *, exchange: str, method: str, params: dict[str, object]
-    ) -> None:
-        self.logger.event(
-            "private_api_call",
-            exchange=exchange,
-            method=method,
-            params=params,
-        )
+    def _log_private_api_trace(self, payload: dict[str, object]) -> None:
+        self.logger.event("private_api_trace", **payload)
 
     async def _replace_maker(self, target: MakerOrder) -> None:
         await self._cancel_active_maker("replace")
@@ -678,18 +675,6 @@ class ArbitrageTrader:
                 "sell_price": self.state.quote.sell_price,
             },
         )
-        self._log_private_api_call(
-            exchange="bitbank",
-            method="place_order",
-            params={
-                "pair": self.config.bitbank_pair,
-                "side": target.side,
-                "order_type": "limit",
-                "amount": target.amount,
-                "price": target.price,
-                "post_only": True,
-            },
-        )
         order = await self._bb_private.place_order(
             pair=self.config.bitbank_pair,
             side=target.side,
@@ -714,15 +699,6 @@ class ArbitrageTrader:
             return
         assert self._bb_private is not None
         try:
-            self._log_private_api_call(
-                exchange="bitbank",
-                method="cancel_order",
-                params={
-                    "pair": self.config.bitbank_pair,
-                    "order_id": maker.order_id,
-                    "reason": reason,
-                },
-            )
             await self._bb_private.cancel_order(
                 pair=self.config.bitbank_pair, order_id=maker.order_id
             )
@@ -738,11 +714,6 @@ class ArbitrageTrader:
         if maker is None or self.config.dry_run or maker.order_id in (None, "DRY-RUN"):
             return
         assert self._bb_private is not None
-        self._log_private_api_call(
-            exchange="bitbank",
-            method="order_info",
-            params={"pair": self.config.bitbank_pair, "order_id": maker.order_id},
-        )
         order = await self._bb_private.order_info(
             pair=self.config.bitbank_pair, order_id=maker.order_id
         )
@@ -761,17 +732,6 @@ class ArbitrageTrader:
         actual_hedge_price = maker.expected_hedge_price
         if not self.config.dry_run:
             assert self._bf_private is not None
-            self._log_private_api_call(
-                exchange="bitflyer",
-                method="send_child_order",
-                params={
-                    "product_code": self.config.bitflyer_product_code,
-                    "child_order_type": "MARKET",
-                    "side": bitflyer_side,
-                    "size": amount,
-                    "time_in_force": "IOC",
-                },
-            )
             ack = await self._bf_private.send_child_order(
                 product_code=self.config.bitflyer_product_code,
                 child_order_type="MARKET",
@@ -818,14 +778,6 @@ class ArbitrageTrader:
         assert self._bf_private is not None
         deadline = time.time() + 3.0
         while time.time() < deadline:
-            self._log_private_api_call(
-                exchange="bitflyer",
-                method="executions",
-                params={
-                    "product_code": self.config.bitflyer_product_code,
-                    "child_order_acceptance_id": acceptance_id,
-                },
-            )
             executions = await self._bf_private.executions(
                 product_code=self.config.bitflyer_product_code,
                 child_order_acceptance_id=acceptance_id,
