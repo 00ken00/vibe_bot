@@ -37,55 +37,18 @@ LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
 class BotAction(Enum):
     """Typed strategy status exposed to logs and the web monitor."""
 
-    IDLE = ("idle", "No trade target is active.")
-    WAITING_FOR_QUOTES = (
-        "waiting_for_quotes",
-        "Waiting for enough order-book data from both exchanges.",
-    )
-    MAINTAIN_BUY = (
-        "maintain_buy",
-        "Keeping the current BUY-action bitbank maker quote.",
-    )
-    MAINTAIN_SELL = (
-        "maintain_sell",
-        "Keeping the current SELL-action bitbank maker quote.",
-    )
-    QUOTE_BUY_DRY_RUN = (
-        "quote_buy_dry_run",
-        "Dry-run selected a BUY-action maker quote; no order was placed.",
-    )
-    QUOTE_SELL_DRY_RUN = (
-        "quote_sell_dry_run",
-        "Dry-run selected a SELL-action maker quote; no order was placed.",
-    )
-    PLACED_BUY = (
-        "placed_buy",
-        "Live mode placed a real BUY-action bitbank maker order.",
-    )
-    PLACED_SELL = (
-        "placed_sell",
-        "Live mode placed a real SELL-action bitbank maker order.",
-    )
-    CANCELING_MAKER = (
-        "canceling_maker",
-        "Canceling the active bitbank maker order.",
-    )
-    CANCELED_MAKER = (
-        "canceled_maker",
-        "Canceled or removed the active bitbank maker order.",
-    )
-    CANCEL_FAILED = (
-        "cancel_failed",
-        "Failed to cancel the active bitbank maker order.",
-    )
-    MAKER_FILLED = (
-        "maker_filled",
-        "Detected a new fill on the active bitbank maker order.",
-    )
-
-    def __init__(self, value: str, description: str) -> None:
-        self._value_ = value
-        self.description = description
+    IDLE = "idle"  # No trade target is active.
+    WAITING_FOR_QUOTES = "waiting_for_quotes"  # Waiting for order-book data.
+    MAINTAIN_BUY = "maintain_buy"  # Keeping the current BUY-action maker quote.
+    MAINTAIN_SELL = "maintain_sell"  # Keeping the current SELL-action maker quote.
+    QUOTE_BUY_DRY_RUN = "quote_buy_dry_run"  # Dry-run selected a BUY maker quote.
+    QUOTE_SELL_DRY_RUN = "quote_sell_dry_run"  # Dry-run selected a SELL maker quote.
+    PLACED_BUY = "placed_buy"  # Live mode placed a BUY-action maker order.
+    PLACED_SELL = "placed_sell"  # Live mode placed a SELL-action maker order.
+    CANCELING_MAKER = "canceling_maker"  # Canceling the active maker order.
+    CANCELED_MAKER = "canceled_maker"  # Canceled or removed the active maker order.
+    CANCEL_FAILED = "cancel_failed"  # Failed to cancel the active maker order.
+    MAKER_FILLED = "maker_filled"  # Detected a fill on the active maker order.
 
     @classmethod
     def maintain(cls, action: str) -> "BotAction":
@@ -199,7 +162,6 @@ class ActionHistoryEntry:
     timestamp: float
     action: BotAction
     description: str
-    comment: str
 
 
 @dataclass
@@ -235,7 +197,6 @@ class BotState:
                 timestamp=time.time(),
                 action=action,
                 description=action_description,
-                comment=action.description,
             )
         )
         if len(self.action_history) > 100:
@@ -246,8 +207,33 @@ BookLevel = Mapping[str, object] | Sequence[object]
 
 
 def event_summary(event_type: str, **payload: object) -> str:
-    event = {"event": event_type, **payload}
-    return json.dumps(decimal_to_json(event), separators=(",", ":"))
+    details = ", ".join(
+        f"{key}={summary_value(value)}" for key, value in payload.items()
+    )
+    return f"{event_type}: {details}" if details else event_type
+
+
+def summary_value(value: object) -> str:
+    converted = decimal_to_json(value)
+    if isinstance(converted, dict):
+        fields = []
+        for key in (
+            "action",
+            "side",
+            "position_side",
+            "order_id",
+            "price",
+            "amount",
+            "trigger_price",
+            "executed_amount",
+            "status",
+        ):
+            if key in converted and converted[key] is not None:
+                fields.append(f"{key}={converted[key]}")
+        return "{" + ", ".join(fields) + "}" if fields else "{}"
+    if isinstance(converted, list):
+        return f"[{len(converted)} items]"
+    return str(converted)
 
 
 class TradeLogger:

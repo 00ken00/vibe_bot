@@ -102,7 +102,6 @@ class WebApp:
                     "timestamp": entry.timestamp,
                     "action": entry.action.value,
                     "description": entry.description,
-                    "comment": entry.comment,
                 }
                 for entry in reversed(self.state.action_history[-100:])
             ],
@@ -344,11 +343,11 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   <section class="history">
     <div class="history-title">Bot Action History</div>
     <table class="history-table">
-      <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th><th>Comment</th></tr></thead>
+      <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th></tr></thead>
     </table>
     <div class="history-scroll">
       <table class="history-table">
-        <tbody id="actionHistory"><tr><td colspan="4" class="history-empty">--</td></tr></tbody>
+        <tbody id="actionHistory"><tr><td colspan="3" class="history-empty">--</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -451,7 +450,7 @@ function renderActionHistory() {{
   const rows = latest.action_history || [];
   const body = el("actionHistory");
   if (!rows.length) {{
-    body.innerHTML = `<tr><td colspan="4" class="history-empty">--</td></tr>`;
+    body.innerHTML = `<tr><td colspan="3" class="history-empty">--</td></tr>`;
     return;
   }}
   body.innerHTML = rows.slice(0, 100).map(row => {{
@@ -459,8 +458,7 @@ function renderActionHistory() {{
     const timeText = Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : "--";
     const action = row.action || "--";
     const description = row.description || "";
-    const comment = row.comment || "";
-    return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td><td>${{escapeHtml(comment)}}</td></tr>`;
+    return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td></tr>`;
   }}).join("");
 }}
 function draw() {{
