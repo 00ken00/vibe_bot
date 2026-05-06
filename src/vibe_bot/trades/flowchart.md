@@ -17,14 +17,14 @@ flowchart TD
     BF --> QP
 
     TR --> TICK{Every maker_update_interval}
-    TICK --> READY{quote.ready?}
+    TICK --> READY{"quote.ready?"}
     READY -- no --> WAIT[Action: WAITING_FOR_QUOTES]
     READY -- yes --> REFRESH[Refresh active maker if live]
     REFRESH --> TARGET[Choose target]
-    TARGET --> HAS{target exists?}
+    TARGET --> HAS{"target exists?"}
     HAS -- no --> IDLE[Action: IDLE]
     IDLE --> CANCEL0[Cancel active maker if any]
-    HAS -- yes --> SAME{same as active maker?}
+    HAS -- yes --> SAME{"same as active maker?"}
     SAME -- yes --> MAINTAIN[Action: MAINTAIN_BUY or MAINTAIN_SELL]
     SAME -- no --> REPLACE[Replace maker]
 ```
@@ -36,21 +36,21 @@ flowchart TD
     START[quote ready] --> CALC[Compute buy_price and sell_price from VWAP]
     CALC --> POS{position}
 
-    POS -- position > 0 --> LC{sell_price > offset?}
+    POS -- position > 0 --> LC{"sell_price > offset?"}
     LC -- yes --> CLOSE_LONG[Target SELL, trigger = offset]
     LC -- no --> NONE1[No target]
 
-    POS -- position < 0 --> SC{buy_price < offset?}
+    POS -- position < 0 --> SC{"buy_price < offset?"}
     SC -- yes --> CLOSE_SHORT[Target BUY, trigger = offset]
     SC -- no --> NONE2[No target]
 
-    POS -- position == 0 --> ENTRY[buy_open = offset - threshold<br/>sell_open = offset + threshold]
+    POS -- position == 0 --> ENTRY["buy_open = offset - threshold<br/>sell_open = offset + threshold"]
     ENTRY --> BE[buy_edge = buy_open - buy_price]
     ENTRY --> SE[sell_edge = sell_price - sell_open]
-    BE --> EDGE{buy_edge > 0 or sell_edge > 0?}
+    BE --> EDGE{"buy_edge > 0 or sell_edge > 0?"}
     SE --> EDGE
     EDGE -- no --> NONE3[No target]
-    EDGE -- yes --> COMP{sell_edge > buy_edge?}
+    EDGE -- yes --> COMP{"sell_edge > buy_edge?"}
     COMP -- yes --> OPEN_SHORT[Target SELL, trigger = sell_open]
     COMP -- no --> OPEN_LONG[Target BUY, trigger = buy_open]
 ```
@@ -63,15 +63,15 @@ flowchart TD
 
     A -- BUY --> BP[passive = bitbank_ask - tick_size]
     BP --> BPROF[profitable = bitFlyer bid VWAP + trigger]
-    BPROF --> BPRICE[price = floor_to_tick min(passive, profitable)]
-    BPRICE --> BVALID{price < bitbank_ask and price > 0?}
+    BPROF --> BPRICE["price = floor_to_tick min(passive, profitable)"]
+    BPRICE --> BVALID{"price < bitbank_ask and price > 0?"}
     BVALID -- yes --> BMAKER[Build bitbank buy maker]
     BVALID -- no --> NONEB[No maker target]
 
     A -- SELL --> SP[passive = bitbank_bid + tick_size]
     SP --> SPROF[profitable = bitFlyer ask VWAP + trigger]
-    SPROF --> SPRICE[price = ceil_to_tick max(passive, profitable)]
-    SPRICE --> SVALID{price > bitbank_bid and price > 0?}
+    SPROF --> SPRICE["price = ceil_to_tick max(passive, profitable)"]
+    SPRICE --> SVALID{"price > bitbank_bid and price > 0?"}
     SVALID -- yes --> SMAKER[Build bitbank sell maker]
     SVALID -- no --> NONES[No maker target]
 ```
@@ -188,4 +188,3 @@ flowchart TD
     BF --> BF1[send_child_order]
     BF --> BF2[executions]
 ```
-
