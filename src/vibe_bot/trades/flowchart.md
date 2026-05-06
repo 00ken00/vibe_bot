@@ -16,7 +16,13 @@ flowchart TD
     QB --> QP[Update Quote from order-size VWAP]
     BF --> QP
 
-    TR --> TICK{Every maker_update_interval}
+    TR --> MODE{"live mode?"}
+    MODE -- no --> TICK{Every maker_update_interval}
+    MODE -- yes --> INIT[Fetch bitbank assets and margin positions, fetch bitFlyer positions]
+    INIT --> CHECK{"positions match within min_order_size?"}
+    CHECK -- no --> FAIL[log: position_initialization_mismatch and stop]
+    CHECK -- yes --> SETPOS[Set initial strategy position]
+    SETPOS --> TICK
     TICK --> READY{"quote.ready?"}
     READY -- no --> WAIT[Action: WAITING_FOR_QUOTES]
     READY -- yes --> REFRESH[Refresh active maker if live]

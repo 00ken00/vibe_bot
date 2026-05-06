@@ -524,6 +524,14 @@ class ArbitrageTrader:
                 private_trace=self._log_private_api_trace
             )
         try:
+            if not self.config.dry_run:
+                try:
+                    await self._initialize_live_position()
+                except Exception as exc:
+                    self.state.last_error = f"position initialization failed: {exc}"
+                    self.logger.event("error", message=self.state.last_error)
+                    stop.set()
+                    raise
             while not stop.is_set():
                 try:
                     await self._tick()
@@ -654,6 +662,85 @@ class ArbitrageTrader:
 
     def _log_private_api_trace(self, payload: dict[str, object]) -> None:
         self.logger.event("private_api_trace", **payload)
+
+    async def _initialize_live_position(self) -> None:
+        assert self._bb_private is not None
+        assert self._bf_private is not None
+        bitbank_position, bitbank_components = await self._bitbank_strategy_position()
+        bitflyer_position, bitflyer_components = await self._bitflyer_strategy_position()
+        mismatch = abs(bitbank_position - bitflyer_position)
+        tolerance = self.config.min_order_size
+        payload = {
+            "bitbank_position": bitbank_position,
+            "bitflyer_position": bitflyer_position,
+            "mismatch": mismatch,
+            "tolerance": tolerance,
+            "bitbank": bitbank_components,
+            "bitflyer": bitflyer_components,
+        }
+        if mismatch > tolerance:
+            self.logger.event("position_initialization_mismatch", **payload)
+            raise RuntimeError(
+                "bitbank and bitFlyer positions disagree: "
+                f"bitbank={bitbank_position}, bitflyer={bitflyer_position}, "
+                f"mismatch={mismatch}, tolerance={tolerance}"
+            )
+        self.state.position = bitbank_position
+        self.logger.event("position_initialized", **payload, position=self.state.position)
+
+    async def _bitbank_strategy_position(
+        self,
+    ) -> tuple[Decimal, dict[str, Decimal | str]]:
+        assert self._bb_private is not None
+        base_asset = self.config.bitbank_pair.split("_", 1)[0].lower()
+        assets = await self._bb_private.assets()
+        spot_amount = Decimal("0")
+        for asset in assets.assets:
+            if asset.asset.lower() == base_asset:
+                spot_amount = asset.onhand_amount
+                break
+
+        margin = await self._bb_private.margin_positions()
+        margin_long = Decimal("0")
+        margin_short = Decimal("0")
+        for position in margin.positions:
+            if position.pair != self.config.bitbank_pair:
+                continue
+            open_amount = position.open_amount or Decimal("0")
+            if position.position_side == "long":
+                margin_long += open_amount
+            elif position.position_side == "short":
+                margin_short += open_amount
+
+        net_position = spot_amount + margin_long - margin_short
+        return net_position, {
+            "pair": self.config.bitbank_pair,
+            "base_asset": base_asset,
+            "spot_onhand_amount": spot_amount,
+            "margin_long_open_amount": margin_long,
+            "margin_short_open_amount": margin_short,
+        }
+
+    async def _bitflyer_strategy_position(
+        self,
+    ) -> tuple[Decimal, dict[str, Decimal | str]]:
+        assert self._bf_private is not None
+        positions = await self._bf_private.positions(
+            product_code=self.config.bitflyer_product_code
+        )
+        long_amount = Decimal("0")
+        short_amount = Decimal("0")
+        for position in positions:
+            if position.side == "BUY":
+                long_amount += position.size
+            elif position.side == "SELL":
+                short_amount += position.size
+        net_position = short_amount - long_amount
+        return net_position, {
+            "product_code": self.config.bitflyer_product_code,
+            "long_open_amount": long_amount,
+            "short_open_amount": short_amount,
+        }
 
     async def _replace_maker(self, target: MakerOrder) -> None:
         await self._cancel_active_maker("replace")
