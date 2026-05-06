@@ -4,6 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PYTHONPATH=/workspace/vibe_bot/src
+ENV TZ=Asia/Tokyo
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -14,8 +15,11 @@ RUN apt-get update \
         less \
         openssh-client \
         procps \
+        tzdata \
         tini \
         vim \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-dev.lock /tmp/requirements-dev.lock
