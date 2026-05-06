@@ -83,9 +83,6 @@ class WebApp:
     def snapshot(self) -> dict[str, object]:
         quote = self.state.quote
         active = self.state.active_maker
-        latest_action_entry = (
-            self.state.action_history[-1] if self.state.action_history else None
-        )
         uptime = time.time() - self.state.started_at
         return {
             "type": "snapshot",
@@ -100,10 +97,6 @@ class WebApp:
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
-            "last_action_description": (
-                latest_action_entry.description if latest_action_entry is not None else ""
-            ),
-            "last_action_comment": self.state.last_action.description,
             "action_history": [
                 {
                     "timestamp": entry.timestamp,
@@ -214,28 +207,6 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
 }}
 .label {{ color: var(--muted); font-size: 12px; }}
 .value {{ margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-.tooltip-wrap {{ position: relative; display: block; max-width: 100%; }}
-.tooltip {{
-  visibility: hidden;
-  opacity: 0;
-  position: absolute;
-  z-index: 5;
-  right: 0;
-  top: calc(100% + 8px);
-  width: min(280px, calc(100vw - 32px));
-  max-width: calc(100vw - 32px);
-  background: #101828;
-  color: #ffffff;
-  border-radius: 6px;
-  padding: 7px 9px;
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.16);
-  transition: opacity 120ms ease;
-}}
-.tooltip-wrap:hover .tooltip {{ visibility: visible; opacity: 1; }}
 .chart-wrap {{
   background: var(--panel);
   border: 1px solid var(--line);
@@ -350,7 +321,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Position BTC</div><div id="position" class="value">--</div></div>
     <div class="metric"><div class="label">Realized PnL JPY</div><div id="pnl" class="value">--</div></div>
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
-    <div class="metric"><div class="label">Action</div><div class="tooltip-wrap"><div id="action" class="value">--</div><div id="actionTooltip" class="tooltip">--</div></div></div>
+    <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
   </section>
   <section class="chart-wrap">
     <div class="legend">
@@ -461,7 +432,6 @@ function renderMetrics() {{
   setText("pnl", fmt.format(num(latest.realized_pnl_jpy || 0)));
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
-  setText("actionTooltip", latest.last_action_description || latest.last_action_comment || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
