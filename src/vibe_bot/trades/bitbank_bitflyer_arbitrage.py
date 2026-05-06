@@ -103,6 +103,7 @@ class BotConfig:
     tick_size: Decimal = Decimal("1")
     min_order_size: Decimal = Decimal("0.0001")
     dry_run: bool = True
+    hedge_enabled: bool = True
     web_host: str = "127.0.0.1"
     web_port: int = 8765
     ws_port: int = 8766
@@ -230,6 +231,8 @@ class TradeLogger:
                 "position",
                 "realized_pnl_jpy",
                 "dry_run",
+                "hedge_enabled",
+                "hedge_executed",
             ],
         )
         if self.trades_path.stat().st_size == 0:
@@ -794,7 +797,8 @@ class ArbitrageTrader:
     ) -> None:
         bitflyer_side = "SELL" if maker.action == "BUY" else "BUY"
         actual_hedge_price = maker.expected_hedge_price
-        if not self.config.dry_run:
+        hedge_executed = False
+        if not self.config.dry_run and self.config.hedge_enabled:
             assert self._bf_private is not None
             ack = await self._bf_private.send_child_order(
                 product_code=self.config.bitflyer_product_code,
@@ -805,6 +809,16 @@ class ArbitrageTrader:
             )
             actual_hedge_price = await self._execution_average(
                 ack.child_order_acceptance_id, fallback=maker.expected_hedge_price
+            )
+            hedge_executed = True
+        elif not self.config.dry_run:
+            self.logger.event(
+                "bitflyer_hedge_skipped",
+                reason="hedge_disabled",
+                maker=asdict(maker),
+                bitflyer_side=bitflyer_side,
+                amount=amount,
+                expected_hedge_price=maker.expected_hedge_price,
             )
 
         if maker.action == "BUY":
@@ -834,6 +848,8 @@ class ArbitrageTrader:
             position=self.state.position,
             realized_pnl_jpy=self.state.realized_pnl_jpy,
             dry_run=self.config.dry_run,
+            hedge_enabled=self.config.hedge_enabled,
+            hedge_executed=hedge_executed,
         )
 
     async def _execution_average(
@@ -924,6 +940,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ws-port", type=int, default=8766)
     parser.add_argument("--log-dir", type=Path, default=Path("logs/trades/bitbank_bitflyer_arbitrage"))
     parser.add_argument("--live", action="store_true", help="place real orders")
+    parser.add_argument(
+        "--disable-bitflyer-hedge",
+        action="store_true",
+        help="in live mode, do not place the bitFlyer hedge market order after a bitbank fill",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -951,6 +972,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         tick_size=args.tick_size,
         min_order_size=args.min_order_size,
         dry_run=not args.live,
+        hedge_enabled=not args.disable_bitflyer_hedge,
         web_host=args.web_host,
         web_port=args.web_port,
         ws_port=args.ws_port,
