@@ -230,6 +230,11 @@ canvas {{ width: 100%; height: 480px; display: block; }}
 .legend {{ display: flex; gap: 18px; color: var(--muted); margin-bottom: 8px; flex-wrap: wrap; }}
 .key {{ display: inline-flex; align-items: center; gap: 6px; }}
 .swatch {{ width: 20px; height: 3px; border-radius: 2px; }}
+.swatch.dashed {{
+  height: 0;
+  border-top: 3px dashed var(--maker);
+  background: transparent;
+}}
 .table {{
   display: grid;
   grid-template-columns: repeat(4, minmax(170px, 1fr));
@@ -295,7 +300,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="legend">
       <span class="key"><span class="swatch" style="background:var(--buy)"></span>BUY price</span>
       <span class="key"><span class="swatch" style="background:var(--sell)"></span>SELL price</span>
-      <span class="key"><span class="swatch" style="background:var(--maker)"></span>active bitbank maker</span>
+      <span class="key"><span class="swatch dashed"></span>maker target spread</span>
       <span class="key">threshold: {self.config.threshold_jpy} JPY</span>
       <span class="key">offset: {self.config.threshold_offset_jpy} JPY</span>
     </div>
@@ -418,9 +423,10 @@ function draw() {{
     ctx.fillStyle = "#667085";
     ctx.fillText(secondsAgo === 0 ? "now" : `-${{secondsAgo}}s`, xx - 12, h - 10);
   }}
-  function line(key, color) {{
+  function line(key, color, dash = []) {{
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
+    ctx.setLineDash(dash);
     ctx.beginPath();
     let moved = false;
     visible.forEach(p => {{
@@ -430,10 +436,11 @@ function draw() {{
       else ctx.lineTo(x(p.t), y(v));
     }});
     ctx.stroke();
+    ctx.setLineDash([]);
   }}
   line("buy", "#1464d2");
   line("sell", "#c2410c");
-  line("maker", "#0f9f6e");
+  line("maker", "#0f9f6e", [7, 5]);
   const zeroY = y(0);
   if (zeroY >= top && zeroY <= top + ch) {{
     ctx.strokeStyle = "#101828";
@@ -444,7 +451,7 @@ function draw() {{
   if (latest && latest.active_maker) {{
     const m = latest.active_maker;
     ctx.fillStyle = "#0f9f6e";
-    ctx.fillText(`maker ${{m.action}} @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
+    ctx.fillText(`maker target ${{m.action}} spread ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
   }}
 }}
 connect();
