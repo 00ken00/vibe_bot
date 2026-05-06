@@ -14,6 +14,7 @@ from .models import (
     Order,
     OrderList,
     OrderType,
+    PositionSide,
     Side,
     SubscribeToken,
     TradeList,
@@ -128,7 +129,7 @@ class PrivateClient:
         price: Decimal | str | None = None,
         post_only: bool | None = None,
         trigger_price: Decimal | str | None = None,
-        position_side: str | None = None,
+        position_side: PositionSide | None = None,
     ) -> Order:
         body = _clean({
             "pair": pair,
