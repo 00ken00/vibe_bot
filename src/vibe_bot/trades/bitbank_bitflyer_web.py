@@ -533,7 +533,10 @@ function draw() {{
     let moved = false;
     visible.forEach(p => {{
       const v = p[key];
-      if (!Number.isFinite(v)) return;
+      if (!Number.isFinite(v)) {{
+        moved = false;
+        return;
+      }}
       if (!moved) {{ ctx.moveTo(x(p.t), y(v)); moved = true; }}
       else ctx.lineTo(x(p.t), y(v));
     }});
