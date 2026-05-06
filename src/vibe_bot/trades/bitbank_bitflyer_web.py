@@ -300,7 +300,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="legend">
       <span class="key"><span class="swatch" style="background:var(--buy)"></span>BUY price</span>
       <span class="key"><span class="swatch" style="background:var(--sell)"></span>SELL price</span>
-      <span class="key"><span class="swatch dashed"></span>maker target spread</span>
+      <span class="key"><span class="swatch dashed"></span>maker effective spread</span>
       <span class="key">threshold: {self.config.threshold_jpy} JPY</span>
       <span class="key">offset: {self.config.threshold_offset_jpy} JPY</span>
     </div>
@@ -332,6 +332,20 @@ const btcFmt = new Intl.NumberFormat("en-US", {{ minimumFractionDigits: 4, maxim
 const el = id => document.getElementById(id);
 function num(v) {{ return v == null ? null : Number(v); }}
 function setText(id, value) {{ el(id).textContent = value; }}
+function effectiveMakerSpread(maker, quote) {{
+  if (!maker || !quote) return null;
+  const price = num(maker.price);
+  if (!Number.isFinite(price)) return null;
+  if (maker.action === "BUY") {{
+    const hedge = num(quote.bitflyer_bid_vwap);
+    return Number.isFinite(hedge) ? price - hedge : null;
+  }}
+  if (maker.action === "SELL") {{
+    const hedge = num(quote.bitflyer_ask_vwap);
+    return Number.isFinite(hedge) ? price - hedge : null;
+  }}
+  return null;
+}}
 function connect() {{
   const ws = new WebSocket(wsUrl);
   ws.onopen = () => {{ el("dot").classList.add("ok"); setText("conn", "Connected"); }};
@@ -346,11 +360,13 @@ function connect() {{
     const buy = num(q.buy_price);
     const sell = num(q.sell_price);
     const maker = latest.active_maker;
+    const makerEffectiveSpread = effectiveMakerSpread(maker, q);
     points.push({{
       t: latest.timestamp * 1000,
       buy,
       sell,
-      maker: maker ? num(maker.trigger_price) : null,
+      maker: makerEffectiveSpread,
+      makerTrigger: maker ? num(maker.trigger_price) : null,
       makerPrice: maker ? num(maker.price) : null,
       makerAction: maker ? maker.action : null
     }});
@@ -452,8 +468,10 @@ function draw() {{
   if (latest && latest.active_maker) {{
     const m = latest.active_maker;
     const account = m.position_side ? `margin ${{m.position_side}}` : "spot";
+    const effective = effectiveMakerSpread(m, latest.quote || {{}});
+    const effectiveText = Number.isFinite(effective) ? fmt.format(effective) : "--";
     ctx.fillStyle = "#0f9f6e";
-    ctx.fillText(`maker target ${{m.action}} ${{account}} spread ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
+    ctx.fillText(`maker ${{m.action}} ${{account}} effective spread ${{effectiveText}} / trigger ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
   }}
 }}
 connect();
