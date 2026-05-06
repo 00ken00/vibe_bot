@@ -8,6 +8,7 @@
     "gcloud",
     "hmac",
     "httpx",
+    "jsonable",
     "pydantic",
     "veryshj",
     "vwap"
