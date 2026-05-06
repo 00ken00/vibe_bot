@@ -24,11 +24,13 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --monitor-update-interval 1.0
 ```
 
-Open the monitor:
+Open the monitor locally:
 
 ```text
 http://127.0.0.1:8765/
 ```
+
+On a remote server, use the server hostname or IP address instead.
 
 Override parameters by changing the CLI values:
 
