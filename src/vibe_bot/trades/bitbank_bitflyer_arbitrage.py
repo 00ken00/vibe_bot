@@ -199,6 +199,7 @@ class ActionHistoryEntry:
     timestamp: float
     action: BotAction
     description: str
+    comment: str
 
 
 @dataclass
@@ -220,15 +221,21 @@ class BotState:
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
 
-    def set_action(self, action: BotAction) -> None:
-        if action == self.last_action and self.action_history:
+    def set_action(self, action: BotAction, description: str | None = None) -> None:
+        action_description = description or ""
+        if (
+            action == self.last_action
+            and self.action_history
+            and self.action_history[-1].description == action_description
+        ):
             return
         self.last_action = action
         self.action_history.append(
             ActionHistoryEntry(
                 timestamp=time.time(),
                 action=action,
-                description=action.description,
+                description=action_description,
+                comment=action.description,
             )
         )
         if len(self.action_history) > 100:
@@ -236,6 +243,11 @@ class BotState:
 
 
 BookLevel = Mapping[str, object] | Sequence[object]
+
+
+def event_summary(event_type: str, **payload: object) -> str:
+    event = {"event": event_type, **payload}
+    return json.dumps(decimal_to_json(event), separators=(",", ":"))
 
 
 class TradeLogger:
@@ -560,16 +572,19 @@ class ArbitrageTrader:
     async def _tick(self) -> None:
         quote = self.state.quote
         if not quote.ready:
-            self.state.set_action(BotAction.WAITING_FOR_QUOTES)
+            self.state.set_action(BotAction.WAITING_FOR_QUOTES, "quote.ready=false")
             return
         await self._refresh_active_maker()
         target = self._choose_target()
         if target is None:
-            self.state.set_action(BotAction.IDLE)
+            self.state.set_action(BotAction.IDLE, "target=None")
             await self._cancel_active_maker("no_target")
             return
         if self._same_maker(self.state.active_maker, target):
-            self.state.set_action(BotAction.maintain(target.action))
+            self.state.set_action(
+                BotAction.maintain(target.action),
+                event_summary("maker_maintained", maker=asdict(target)),
+            )
             return
         await self._replace_maker(target)
 
@@ -756,7 +771,10 @@ class ArbitrageTrader:
         if self.config.dry_run:
             target.order_id = "DRY-RUN"
             self.state.active_maker = target
-            self.state.set_action(BotAction.dry_run_quote(target.action))
+            self.state.set_action(
+                BotAction.dry_run_quote(target.action),
+                event_summary("maker_quote", dry_run=True, maker=asdict(target)),
+            )
             self.logger.event("maker_quote", dry_run=True, maker=asdict(target))
             return
         assert self._bb_private is not None
@@ -791,7 +809,10 @@ class ArbitrageTrader:
         target.order_id = str(order.order_id)
         target.executed_amount = order.executed_amount
         self.state.active_maker = target
-        self.state.set_action(BotAction.placed(target.action))
+        self.state.set_action(
+            BotAction.placed(target.action),
+            event_summary("maker_placed", maker=asdict(target)),
+        )
         self.logger.event("maker_placed", maker=asdict(target))
 
     async def _cancel_active_maker(self, reason: str) -> None:
@@ -799,10 +820,23 @@ class ArbitrageTrader:
         if maker is None:
             return
         self.state.active_maker = None
-        self.state.set_action(BotAction.CANCELING_MAKER)
+        self.state.set_action(
+            BotAction.CANCELING_MAKER,
+            event_summary(
+                "maker_cancel_attempt",
+                reason=reason,
+                order_id=maker.order_id,
+                maker=asdict(maker),
+            ),
+        )
         if self.config.dry_run or maker.order_id in (None, "DRY-RUN"):
             self.logger.event("maker_removed", reason=reason, dry_run=True, maker=asdict(maker))
-            self.state.set_action(BotAction.CANCELED_MAKER)
+            self.state.set_action(
+                BotAction.CANCELED_MAKER,
+                event_summary(
+                    "maker_removed", reason=reason, dry_run=True, maker=asdict(maker)
+                ),
+            )
             return
         assert self._bb_private is not None
         try:
@@ -810,12 +844,23 @@ class ArbitrageTrader:
                 pair=self.config.bitbank_pair, order_id=maker.order_id
             )
             self.logger.event("maker_canceled", reason=reason, maker=asdict(maker))
-            self.state.set_action(BotAction.CANCELED_MAKER)
+            self.state.set_action(
+                BotAction.CANCELED_MAKER,
+                event_summary("maker_canceled", reason=reason, maker=asdict(maker)),
+            )
         except Exception as exc:
             self.logger.event(
                 "maker_cancel_failed", reason=reason, error=str(exc), maker=asdict(maker)
             )
-            self.state.set_action(BotAction.CANCEL_FAILED)
+            self.state.set_action(
+                BotAction.CANCEL_FAILED,
+                event_summary(
+                    "maker_cancel_failed",
+                    reason=reason,
+                    error=str(exc),
+                    maker=asdict(maker),
+                ),
+            )
             raise
 
     async def _refresh_active_maker(self) -> None:
@@ -830,15 +875,21 @@ class ArbitrageTrader:
         maker.executed_amount = order.executed_amount
         if delta > 0:
             fill_price = order.average_price or maker.price
-            self.state.set_action(BotAction.MAKER_FILLED)
+            fill_event = {
+                "maker": asdict(maker),
+                "bitbank_order_id": maker.order_id,
+                "fill_amount": delta,
+                "cumulative_executed_amount": maker.executed_amount,
+                "fill_price": fill_price,
+                "order_status": order.status,
+            }
+            self.state.set_action(
+                BotAction.MAKER_FILLED,
+                event_summary("maker_filled", **fill_event),
+            )
             self.logger.event(
                 "maker_filled",
-                maker=asdict(maker),
-                bitbank_order_id=maker.order_id,
-                fill_amount=delta,
-                cumulative_executed_amount=maker.executed_amount,
-                fill_price=fill_price,
-                order_status=order.status,
+                **fill_event,
             )
             await self._hedge_fill(maker, delta, fill_price)
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):

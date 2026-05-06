@@ -83,6 +83,9 @@ class WebApp:
     def snapshot(self) -> dict[str, object]:
         quote = self.state.quote
         active = self.state.active_maker
+        latest_action_entry = (
+            self.state.action_history[-1] if self.state.action_history else None
+        )
         uptime = time.time() - self.state.started_at
         return {
             "type": "snapshot",
@@ -97,12 +100,16 @@ class WebApp:
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
-            "last_action_description": self.state.last_action.description,
+            "last_action_description": (
+                latest_action_entry.description if latest_action_entry is not None else ""
+            ),
+            "last_action_comment": self.state.last_action.description,
             "action_history": [
                 {
                     "timestamp": entry.timestamp,
                     "action": entry.action.value,
                     "description": entry.description,
+                    "comment": entry.comment,
                 }
                 for entry in reversed(self.state.action_history[-100:])
             ],
@@ -366,11 +373,11 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   <section class="history">
     <div class="history-title">Bot Action History</div>
     <table class="history-table">
-      <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th></tr></thead>
+      <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th><th>Comment</th></tr></thead>
     </table>
     <div class="history-scroll">
       <table class="history-table">
-        <tbody id="actionHistory"><tr><td colspan="3" class="history-empty">--</td></tr></tbody>
+        <tbody id="actionHistory"><tr><td colspan="4" class="history-empty">--</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -454,7 +461,7 @@ function renderMetrics() {{
   setText("pnl", fmt.format(num(latest.realized_pnl_jpy || 0)));
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
-  setText("actionTooltip", latest.last_action_description || "--");
+  setText("actionTooltip", latest.last_action_description || latest.last_action_comment || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
@@ -474,7 +481,7 @@ function renderActionHistory() {{
   const rows = latest.action_history || [];
   const body = el("actionHistory");
   if (!rows.length) {{
-    body.innerHTML = `<tr><td colspan="3" class="history-empty">--</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="history-empty">--</td></tr>`;
     return;
   }}
   body.innerHTML = rows.slice(0, 100).map(row => {{
@@ -482,7 +489,8 @@ function renderActionHistory() {{
     const timeText = Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : "--";
     const action = row.action || "--";
     const description = row.description || "";
-    return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td></tr>`;
+    const comment = row.comment || "";
+    return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td><td>${{escapeHtml(comment)}}</td></tr>`;
   }}).join("");
 }}
 function draw() {{
