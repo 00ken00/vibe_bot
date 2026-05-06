@@ -699,10 +699,11 @@ class ArbitrageTrader:
             "bitflyer_position": bitflyer_position,
             "mismatch": mismatch,
             "tolerance": tolerance,
+            "hedge_enabled": self.config.hedge_enabled,
             "bitbank": bitbank_components,
             "bitflyer": bitflyer_components,
         }
-        if mismatch > tolerance:
+        if self.config.hedge_enabled and mismatch > tolerance:
             self.logger.event("position_initialization_mismatch", **payload)
             raise RuntimeError(
                 "bitbank and bitFlyer positions disagree: "
@@ -710,6 +711,8 @@ class ArbitrageTrader:
                 f"mismatch={mismatch}, tolerance={tolerance}"
             )
         self.state.position = bitbank_position
+        if not self.config.hedge_enabled and mismatch > tolerance:
+            self.logger.event("position_initialization_mismatch_ignored", **payload)
         self.logger.event("position_initialized", **payload, position=self.state.position)
 
     async def _bitbank_strategy_position(
