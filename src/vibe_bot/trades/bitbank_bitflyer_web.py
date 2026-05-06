@@ -266,6 +266,10 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   border-collapse: collapse;
   table-layout: fixed;
 }}
+.history-scroll {{
+  max-height: 456px;
+  overflow-y: auto;
+}}
 .history-table th,
 .history-table td {{
   text-align: left;
@@ -363,8 +367,12 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="history-title">Bot Action History</div>
     <table class="history-table">
       <thead><tr><th class="history-time">Time</th><th class="history-action">Action</th><th>Description</th></tr></thead>
-      <tbody id="actionHistory"><tr><td colspan="3" class="history-empty">--</td></tr></tbody>
     </table>
+    <div class="history-scroll">
+      <table class="history-table">
+        <tbody id="actionHistory"><tr><td colspan="3" class="history-empty">--</td></tr></tbody>
+      </table>
+    </div>
   </section>
   <div id="error" class="error"></div>
   <section class="params">
