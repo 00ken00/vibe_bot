@@ -104,7 +104,7 @@ class BotConfig:
     min_order_size: Decimal = Decimal("0.0001")
     dry_run: bool = True
     hedge_enabled: bool = True
-    web_host: str = "127.0.0.1"
+    web_host: str = "0.0.0.0"
     web_port: int = 8765
     ws_port: int = 8766
     log_dir: Path = Path("logs/trades/bitbank_bitflyer_arbitrage")
@@ -957,7 +957,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-order-size", type=decimal_arg, default=Decimal("0.0001"))
     parser.add_argument("--bitbank-pair", default="btc_jpy")
     parser.add_argument("--bitflyer-product-code", default="FX_BTC_JPY")
-    parser.add_argument("--web-host", default="127.0.0.1")
+    parser.add_argument("--web-host", default="0.0.0.0")
     parser.add_argument("--web-port", type=int, default=8765)
     parser.add_argument("--ws-port", type=int, default=8766)
     parser.add_argument("--log-dir", type=Path, default=Path("logs/trades/bitbank_bitflyer_arbitrage"))
