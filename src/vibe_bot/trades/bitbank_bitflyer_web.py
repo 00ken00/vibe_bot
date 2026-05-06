@@ -152,7 +152,6 @@ class WebApp:
         return "\n".join(rows)
 
     def _html(self) -> str:
-        ws_url = f"ws://{self.config.web_host}:{self.config.ws_port}"
         parameters_html = self._parameters_html()
         return f"""<!doctype html>
 <html lang="en">
@@ -376,7 +375,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   </section>
 </main>
 <script>
-const wsUrl = "{ws_url}";
+const wsUrl = `${{window.location.protocol === "https:" ? "wss" : "ws"}}://${{window.location.hostname}}:{self.config.ws_port}`;
 const chartWindowMs = 60_000;
 const points = [];
 let latest = null;
