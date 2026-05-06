@@ -197,3 +197,86 @@ For more information, see https://docs.github.com/get-started/writing-on-github/
 it is currently using _log_private_api_call before every api call and the parameters are
 rewrite every time, which is a little redundant.
 Can you find a way to log every private api call with parameters and raw response globally?
+
+
+
+Check:
+
+            profitable = quote.bitflyer_bid_vwap + trigger
+and
+
+            profitable = quote.bitflyer_ask_vwap + trigger
+
+why both of them are +? are you sure?
+
+
+
+
+
+draw maker target price using dashed line in the chart of web app
+
+
+
+
+List all bitbank private api call method used in the code
+
+
+
+Now update with this complex logic,
+currently the buy and sell in bitbank both using spot API. 
+However, initially I do not have BTC in bitbank so the sell order can not be placed.
+Now, use margin order, with position_side set to be "short", then it will open a short position in exchange even I do not have BTC in bitbank. Notice close short position also
+should set "short".
+By the way the long position should still use spot order, since spot order do not have margin maintenance fee.
+Check the bitbank docs for more precise information.
+
+
+
+
+Current code assumes position is 0, which is not always true.
+Add logic that check position at the beginning.
+
+
+
+Now move all independent helper function to a utils or tools or something like that .py file
+
+
+
+is active_maker in BotState is al
+
+
+Explain all variables in MakerOrder
+
+
+what price is plotted in the web chart?
+
+
+why is it called "  maker target spread " ?
+
+
+
+since this existing active maker effective trigger price may vary if the bitflyer price changed, I want to see this change in the chart's maker target line, implement this feature
+
+
+
+Add an option that can disable bitflyer hedge order
+
+
+Can you add a bot action history view in web app, 
+record recent 100 bot action and their timestamp
+
+
+
+Now I want to encapsulate the bot into a docker image that can run jupyter-lab on remote ubuntu server, then I can run bot with command and manage it.
+Help me to create docker file. this image should install all dev dependency, but without copying a code directly.
+Every time I update the code, I want to be able to go to the server and git pull, then my jupyter-lab can automatically reflect the newest code
+
+
+The dockerfile should install dependency with the lock file
+
+
+Currently the web server runs over 127.0.0.1:8765, I want to run it on ubuntu server, and access from local.
+Do I need to change it to 0.0.0.0?
+
+
+Now I can access web server but it can not connect to websocket at 8766, anything I need to do more?
