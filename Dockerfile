@@ -20,7 +20,7 @@ RUN apt-get update \
 
 COPY requirements-dev.lock /tmp/requirements-dev.lock
 
-RUN sed '/^-e file:\\.$/d' /tmp/requirements-dev.lock > /tmp/requirements-docker.lock \
+RUN grep -v -F -- "-e file:." /tmp/requirements-dev.lock > /tmp/requirements-docker.lock \
     && python3 -m pip install --upgrade pip \
     && python3 -m pip install -r /tmp/requirements-docker.lock \
     && rm -f /tmp/requirements-dev.lock /tmp/requirements-docker.lock
