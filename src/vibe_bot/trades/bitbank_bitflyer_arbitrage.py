@@ -9,8 +9,7 @@ import signal
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_DOWN, ROUND_UP
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 
@@ -23,6 +22,13 @@ from vibe_bot.bitbank.models import PositionSide as BitbankPositionSide
 from vibe_bot.bitbank.models import Side as BitbankSide
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
+from vibe_bot.trades.bitbank_bitflyer_utils import decimal_arg
+from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json
+from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json_dict
+from vibe_bot.trades.bitbank_bitflyer_utils import local_date_stamp
+from vibe_bot.trades.bitbank_bitflyer_utils import quantize_down
+from vibe_bot.trades.bitbank_bitflyer_utils import quantize_up
+from vibe_bot.trades.bitbank_bitflyer_utils import utc_iso
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
@@ -190,45 +196,7 @@ class BotState:
     started_at: float = field(default_factory=time.time)
 
 
-Jsonable = None | bool | int | float | str | list[object] | dict[str, object]
 BookLevel = Mapping[str, object] | Sequence[object]
-
-
-def decimal_to_json(value: object) -> Jsonable:
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, BotAction):
-        return value.value
-    if isinstance(value, (Quote, MakerOrder, BotState)):
-        return decimal_to_json(asdict(value))
-    if isinstance(value, dict):
-        return {str(k): decimal_to_json(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [decimal_to_json(v) for v in value]
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    return str(value)
-
-
-def decimal_to_json_dict(value: dict[str, object]) -> dict[str, object]:
-    converted = decimal_to_json(value)
-    if not isinstance(converted, dict):
-        raise TypeError("expected JSON object")
-    return converted
-
-
-def utc_iso(ts: float | None = None) -> str:
-    return datetime.fromtimestamp(ts or time.time(), timezone.utc).isoformat()
-
-
-def quantize_down(value: Decimal, tick: Decimal) -> Decimal:
-    return (value / tick).to_integral_value(rounding=ROUND_DOWN) * tick
-
-
-def quantize_up(value: Decimal, tick: Decimal) -> Decimal:
-    return (value / tick).to_integral_value(rounding=ROUND_UP) * tick
 
 
 class TradeLogger:
@@ -241,7 +209,7 @@ class TradeLogger:
     def __init__(self, log_dir: Path) -> None:
         self.log_dir = log_dir
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d")
+        stamp = local_date_stamp()
         self.events_path = self.log_dir / f"events-{stamp}.jsonl"
         self.trades_path = self.log_dir / f"trades-{stamp}.csv"
         self._csv_file = self.trades_path.open("a", newline="")
@@ -925,16 +893,6 @@ async def run_bot(config: BotConfig) -> None:
         web.stop_http()
         logger.event("bot_stopped")
         logger.close()
-
-
-def decimal_arg(value: str) -> Decimal:
-    try:
-        result = Decimal(value)
-    except Exception as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-    if not result.is_finite():
-        raise argparse.ArgumentTypeError("must be finite")
-    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
