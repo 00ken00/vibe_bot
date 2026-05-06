@@ -78,6 +78,10 @@ class BotAction(Enum):
         "cancel_failed",
         "Failed to cancel the active bitbank maker order.",
     )
+    MAKER_FILLED = (
+        "maker_filled",
+        "Detected a new fill on the active bitbank maker order.",
+    )
 
     def __init__(self, value: str, description: str) -> None:
         self._value_ = value
@@ -825,7 +829,18 @@ class ArbitrageTrader:
         delta = order.executed_amount - maker.executed_amount
         maker.executed_amount = order.executed_amount
         if delta > 0:
-            await self._hedge_fill(maker, delta, order.average_price or maker.price)
+            fill_price = order.average_price or maker.price
+            self.state.set_action(BotAction.MAKER_FILLED)
+            self.logger.event(
+                "maker_filled",
+                maker=asdict(maker),
+                bitbank_order_id=maker.order_id,
+                fill_amount=delta,
+                cumulative_executed_amount=maker.executed_amount,
+                fill_price=fill_price,
+                order_status=order.status,
+            )
+            await self._hedge_fill(maker, delta, fill_price)
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):
             self.state.active_maker = None
             self.logger.event("maker_done", status=order.status, maker=asdict(maker))
