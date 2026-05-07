@@ -96,7 +96,6 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py --help
 Pull the latest code on the remote VM from your local shell:
 
 ```bash
-gcloud compute ssh veryshj123@vibe-bot -- -t 'cd vibe_bot && git -c color.ui=always pull'
 gcloud compute ssh veryshj123@vibe-bot -- -t 'cd vibe_bot && git pull'
 ```
 
