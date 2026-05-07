@@ -39,7 +39,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START[quote ready] --> CALC["Compute buy_price, sell_price, stage_size, max_stages"]
+    START[quote ready] --> CALC["Compute bitbank maker prices, bitFlyer VWAP, buy_price, sell_price, stage_size, max_stages"]
     CALC --> POS{position}
 
     POS -- position > 0 --> LS["current_stage = ceil(position / stage_size)<br/>close = offset - (current_stage - 1) * threshold"]

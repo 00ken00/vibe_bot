@@ -112,10 +112,10 @@ class WebApp:
             "quote": {
                 "bitbank_bid": quote.bitbank_bid,
                 "bitbank_ask": quote.bitbank_ask,
+                "bitbank_buy_maker": quote.bitbank_buy_maker,
+                "bitbank_sell_maker": quote.bitbank_sell_maker,
                 "bitflyer_bid": quote.bitflyer_bid,
                 "bitflyer_ask": quote.bitflyer_ask,
-                "bitbank_bid_vwap": quote.bitbank_bid_vwap,
-                "bitbank_ask_vwap": quote.bitbank_ask_vwap,
                 "bitflyer_bid_vwap": quote.bitflyer_bid_vwap,
                 "bitflyer_ask_vwap": quote.bitflyer_ask_vwap,
                 "buy_price": quote.buy_price,
@@ -399,7 +399,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   </section>
   <section class="table">
     <div class="metric"><div class="label">bitbank Top Bid / Ask</div><div id="bb" class="value">--</div></div>
-    <div class="metric"><div class="label">bitbank Est Sell / Buy</div><div id="bbDepth" class="value">--</div></div>
+    <div class="metric"><div class="label">bitbank Maker Buy / Sell</div><div id="bbMaker" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
@@ -505,7 +505,7 @@ function renderMetrics() {{
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
-  setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
+  setText("bbMaker", `${{fmt.format(num(q.bitbank_buy_maker || 0))}} / ${{fmt.format(num(q.bitbank_sell_maker || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
   setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
   const s = latest.stage_status || {{}};

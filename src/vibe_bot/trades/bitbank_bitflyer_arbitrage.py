@@ -98,17 +98,16 @@ class BotConfig:
 class Quote:
     """Current order-book prices used to calculate arbitrage spreads.
 
-    Top-of-book fields are kept for display and maker quote placement. VWAP
-    fields estimate the average price needed to fully execute ``order_size``.
-    BUY/SELL arbitrage prices are calculated from those VWAP fields.
+    bitbank uses top-of-book aggressive maker prices. bitFlyer uses VWAP
+    estimates because the hedge leg is a taker order sized by ``order_size``.
     """
 
     bitbank_bid: Decimal | None = None
     bitbank_ask: Decimal | None = None
+    bitbank_buy_maker: Decimal | None = None
+    bitbank_sell_maker: Decimal | None = None
     bitflyer_bid: Decimal | None = None
     bitflyer_ask: Decimal | None = None
-    bitbank_bid_vwap: Decimal | None = None
-    bitbank_ask_vwap: Decimal | None = None
     bitflyer_bid_vwap: Decimal | None = None
     bitflyer_ask_vwap: Decimal | None = None
     timestamp: float = 0.0
@@ -120,10 +119,10 @@ class Quote:
             for value in (
                 self.bitbank_bid,
                 self.bitbank_ask,
+                self.bitbank_buy_maker,
+                self.bitbank_sell_maker,
                 self.bitflyer_bid,
                 self.bitflyer_ask,
-                self.bitbank_bid_vwap,
-                self.bitbank_ask_vwap,
                 self.bitflyer_bid_vwap,
                 self.bitflyer_ask_vwap,
             )
@@ -131,15 +130,15 @@ class Quote:
 
     @property
     def buy_price(self) -> Decimal | None:
-        if self.bitbank_ask_vwap is None or self.bitflyer_bid_vwap is None:
+        if self.bitbank_buy_maker is None or self.bitflyer_bid_vwap is None:
             return None
-        return self.bitbank_ask_vwap - self.bitflyer_bid_vwap
+        return self.bitbank_buy_maker - self.bitflyer_bid_vwap
 
     @property
     def sell_price(self) -> Decimal | None:
-        if self.bitbank_bid_vwap is None or self.bitflyer_ask_vwap is None:
+        if self.bitbank_sell_maker is None or self.bitflyer_ask_vwap is None:
             return None
-        return self.bitbank_bid_vwap - self.bitflyer_ask_vwap
+        return self.bitbank_sell_maker - self.bitflyer_ask_vwap
 
 
 @dataclass
@@ -500,10 +499,18 @@ class WebSocketQuoteFeed:
         quote = Quote(
             bitbank_bid=self._bitbank.best_bid,
             bitbank_ask=self._bitbank.best_ask,
+            bitbank_buy_maker=(
+                self._bitbank.best_ask - self.config.tick_size
+                if self._bitbank.best_ask is not None
+                else None
+            ),
+            bitbank_sell_maker=(
+                self._bitbank.best_bid + self.config.tick_size
+                if self._bitbank.best_bid is not None
+                else None
+            ),
             bitflyer_bid=self._bitflyer.best_bid,
             bitflyer_ask=self._bitflyer.best_ask,
-            bitbank_bid_vwap=self._bitbank.vwap("sell", amount),
-            bitbank_ask_vwap=self._bitbank.vwap("buy", amount),
             bitflyer_bid_vwap=self._bitflyer.vwap("sell", amount),
             bitflyer_ask_vwap=self._bitflyer.vwap("buy", amount),
             timestamp=time.time(),
@@ -821,8 +828,8 @@ class ArbitrageTrader:
             quote={
                 "bitbank_bid": self.state.quote.bitbank_bid,
                 "bitbank_ask": self.state.quote.bitbank_ask,
-                "bitbank_bid_vwap": self.state.quote.bitbank_bid_vwap,
-                "bitbank_ask_vwap": self.state.quote.bitbank_ask_vwap,
+                "bitbank_buy_maker": self.state.quote.bitbank_buy_maker,
+                "bitbank_sell_maker": self.state.quote.bitbank_sell_maker,
                 "bitflyer_bid": self.state.quote.bitflyer_bid,
                 "bitflyer_ask": self.state.quote.bitflyer_ask,
                 "bitflyer_bid_vwap": self.state.quote.bitflyer_bid_vwap,
