@@ -129,6 +129,8 @@ class WebApp:
             ("threshold_jpy", self.config.threshold_jpy),
             ("threshold_offset_jpy", self.config.threshold_offset_jpy),
             ("order_size", self.config.order_size),
+            ("stage_size", self.config.stage_size),
+            ("max_stages", self.config.max_stages),
             ("max_position", self.config.max_position),
             ("maker_update_interval", self.config.maker_update_interval),
             ("monitor_update_interval", self.config.monitor_update_interval),

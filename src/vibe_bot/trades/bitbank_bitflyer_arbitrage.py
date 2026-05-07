@@ -9,7 +9,7 @@ import signal
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from enum import Enum
 from pathlib import Path
 
@@ -76,7 +76,8 @@ class BotConfig:
     threshold_jpy: Decimal = Decimal("1000")
     threshold_offset_jpy: Decimal = Decimal("0")
     order_size: Decimal = Decimal("0.001")
-    max_position: Decimal = Decimal("0.003")
+    stage_size: Decimal = Decimal("0.001")
+    max_stages: int = 3
     maker_update_interval: float = 0.5
     monitor_update_interval: float = 1.0
     tick_size: Decimal = Decimal("1")
@@ -87,6 +88,10 @@ class BotConfig:
     web_port: int = 8765
     ws_port: int = 8766
     log_dir: Path = Path("logs/trades/bitbank_bitflyer_arbitrage")
+
+    @property
+    def max_position(self) -> Decimal:
+        return self.stage_size * Decimal(self.max_stages)
 
 
 @dataclass
@@ -152,6 +157,7 @@ class MakerOrder:
     amount: Decimal
     trigger_price: Decimal
     expected_hedge_price: Decimal
+    stage_index: int
     order_id: str | None = None
     placed_at: float = field(default_factory=time.time)
     executed_amount: Decimal = Decimal("0")
@@ -225,6 +231,7 @@ def summary_value(value: object) -> str:
             "price",
             "amount",
             "trigger_price",
+            "stage_index",
             "executed_amount",
             "status",
         ):
@@ -582,52 +589,79 @@ class ArbitrageTrader:
         assert buy_price is not None and sell_price is not None
         threshold = self.config.threshold_jpy
         offset = self.config.threshold_offset_jpy
-        buy_open_trigger = offset - threshold
-        sell_open_trigger = offset + threshold
         position = self.state.position
-        entry_unit = min(self.config.order_size, self.config.max_position)
+        abs_position = abs(position)
 
         if position > 0:
-            if sell_price > offset:
-                return self._build_target("SELL", offset)
-            if position < entry_unit and buy_price < buy_open_trigger:
-                return self._build_target("BUY", buy_open_trigger)
+            current_stage = self._ceil_stage(abs_position)
+            close_trigger = offset - Decimal(current_stage - 1) * threshold
+            if sell_price > close_trigger:
+                amount = self._close_stage_amount(abs_position, current_stage)
+                return self._build_target("SELL", close_trigger, amount, current_stage)
+            next_stage = self._next_stage(abs_position)
+            if next_stage <= self.config.max_stages:
+                open_trigger = offset - Decimal(next_stage) * threshold
+                if buy_price < open_trigger:
+                    amount = self._open_stage_amount(abs_position, next_stage)
+                    return self._build_target("BUY", open_trigger, amount, next_stage)
             return None
         if position < 0:
-            if buy_price < offset:
-                return self._build_target("BUY", offset)
-            if abs(position) < entry_unit and sell_price > sell_open_trigger:
-                return self._build_target("SELL", sell_open_trigger)
+            current_stage = self._ceil_stage(abs_position)
+            close_trigger = offset + Decimal(current_stage - 1) * threshold
+            if buy_price < close_trigger:
+                amount = self._close_stage_amount(abs_position, current_stage)
+                return self._build_target("BUY", close_trigger, amount, current_stage)
+            next_stage = self._next_stage(abs_position)
+            if next_stage <= self.config.max_stages:
+                open_trigger = offset + Decimal(next_stage) * threshold
+                if sell_price > open_trigger:
+                    amount = self._open_stage_amount(abs_position, next_stage)
+                    return self._build_target("SELL", open_trigger, amount, next_stage)
             return None
 
+        buy_open_trigger = offset - threshold
+        sell_open_trigger = offset + threshold
         buy_edge = buy_open_trigger - buy_price
         sell_edge = sell_price - sell_open_trigger
+        amount = self._open_stage_amount(Decimal("0"), 1)
         if buy_edge <= 0 and sell_edge <= 0:
             return None
         if sell_edge > buy_edge:
-            return self._build_target("SELL", sell_open_trigger)
-        return self._build_target("BUY", buy_open_trigger)
+            return self._build_target("SELL", sell_open_trigger, amount, 1)
+        return self._build_target("BUY", buy_open_trigger, amount, 1)
 
-    def _target_amount(self, action: str) -> Decimal:
-        position = self.state.position
-        if action == "BUY":
-            capacity = self.config.max_position - position
-            if position < 0:
-                capacity = min(abs(position), self.config.order_size)
-            elif position > 0:
-                capacity = min(self.config.order_size - position, capacity)
-            return min(self.config.order_size, capacity)
-        capacity = self.config.max_position + position
-        if position > 0:
-            capacity = min(position, self.config.order_size)
-        elif position < 0:
-            capacity = min(self.config.order_size + position, capacity)
-        return min(self.config.order_size, capacity)
+    def _ceil_stage(self, abs_position: Decimal) -> int:
+        stage = (abs_position / self.config.stage_size).to_integral_value(
+            rounding=ROUND_UP
+        )
+        return max(1, int(stage))
 
-    def _build_target(self, action: str, trigger: Decimal) -> MakerOrder | None:
+    def _next_stage(self, abs_position: Decimal) -> int:
+        completed = (abs_position / self.config.stage_size).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+        return int(completed) + 1
+
+    def _open_stage_amount(self, abs_position: Decimal, stage_index: int) -> Decimal:
+        target_position = min(
+            self.config.stage_size * Decimal(stage_index),
+            self.config.max_position,
+        )
+        return min(self.config.order_size, target_position - abs_position)
+
+    def _close_stage_amount(self, abs_position: Decimal, stage_index: int) -> Decimal:
+        lower_stage_position = self.config.stage_size * Decimal(stage_index - 1)
+        return min(self.config.order_size, abs_position - lower_stage_position)
+
+    def _build_target(
+        self,
+        action: str,
+        trigger: Decimal,
+        amount: Decimal,
+        stage_index: int,
+    ) -> MakerOrder | None:
         quote = self.state.quote
         assert quote.ready
-        amount = self._target_amount(action)
         if amount < self.config.min_order_size:
             return None
         assert quote.bitbank_bid is not None
@@ -667,6 +701,7 @@ class ArbitrageTrader:
             amount=amount,
             trigger_price=trigger,
             expected_hedge_price=expected_hedge,
+            stage_index=stage_index,
         )
 
     def _same_maker(self, current: MakerOrder | None, target: MakerOrder) -> bool:
@@ -1026,7 +1061,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="center spread offset for open/close thresholds",
     )
     parser.add_argument("--order-size", type=decimal_arg, default=Decimal("0.001"))
-    parser.add_argument("--max-position", type=decimal_arg, default=Decimal("0.003"))
+    parser.add_argument(
+        "--stage-size",
+        type=decimal_arg,
+        default=Decimal("0.001"),
+        help="target exposure size per spread ladder stage",
+    )
+    parser.add_argument(
+        "--max-stages",
+        type=int,
+        default=3,
+        help="maximum number of spread ladder stages per side",
+    )
     parser.add_argument("--maker-update-interval", type=float, default=0.5)
     parser.add_argument(
         "--monitor-update-interval",
@@ -1057,8 +1103,16 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--threshold-jpy must be positive")
     if args.order_size <= 0:
         raise SystemExit("--order-size must be positive")
-    if args.max_position <= 0:
-        raise SystemExit("--max-position must be positive")
+    if args.stage_size <= 0:
+        raise SystemExit("--stage-size must be positive")
+    if args.max_stages <= 0:
+        raise SystemExit("--max-stages must be positive")
+    if args.min_order_size <= 0:
+        raise SystemExit("--min-order-size must be positive")
+    if args.order_size < args.min_order_size:
+        raise SystemExit("--order-size must be greater than or equal to --min-order-size")
+    if args.stage_size < args.min_order_size:
+        raise SystemExit("--stage-size must be greater than or equal to --min-order-size")
     if args.maker_update_interval <= 0:
         raise SystemExit("--maker-update-interval must be positive")
     if args.monitor_update_interval <= 0:
@@ -1069,7 +1123,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         threshold_jpy=args.threshold_jpy,
         threshold_offset_jpy=args.threshold_offset_jpy,
         order_size=args.order_size,
-        max_position=args.max_position,
+        stage_size=args.stage_size,
+        max_stages=args.max_stages,
         maker_update_interval=args.maker_update_interval,
         monitor_update_interval=args.monitor_update_interval,
         tick_size=args.tick_size,

@@ -39,19 +39,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START[quote ready] --> CALC["Compute buy_price, sell_price, buy_open, sell_open, entry_unit"]
+    START[quote ready] --> CALC["Compute buy_price, sell_price, stage_size, max_stages"]
     CALC --> POS{position}
 
-    POS -- position > 0 --> LC{"sell_price > offset?"}
-    LC -- yes --> CLOSE_LONG[Target SELL, trigger = offset]
-    LC -- no --> LPC{"position < entry_unit and buy_price < buy_open?"}
-    LPC -- yes --> COMPLETE_LONG["Continue BUY entry for remaining order_size - position"]
+    POS -- position > 0 --> LS["current_stage = ceil(position / stage_size)<br/>close = offset - (current_stage - 1) * threshold"]
+    LS --> LC{"sell_price > close?"}
+    LC -- yes --> CLOSE_LONG["Target SELL to close current stage remainder"]
+    LC -- no --> LN["next_stage = floor(position / stage_size) + 1<br/>open = offset - next_stage * threshold"]
+    LN --> LPC{"next_stage <= max_stages and buy_price < open?"}
+    LPC -- yes --> COMPLETE_LONG["Target BUY to fill next stage remainder"]
     LPC -- no --> NONE1[No target]
 
-    POS -- position < 0 --> SC{"buy_price < offset?"}
-    SC -- yes --> CLOSE_SHORT[Target BUY, trigger = offset]
-    SC -- no --> SPC{"abs(position) < entry_unit and sell_price > sell_open?"}
-    SPC -- yes --> COMPLETE_SHORT["Continue SELL entry for remaining order_size - abs(position)"]
+    POS -- position < 0 --> SS["current_stage = ceil(abs(position) / stage_size)<br/>close = offset + (current_stage - 1) * threshold"]
+    SS --> SC{"buy_price < close?"}
+    SC -- yes --> CLOSE_SHORT["Target BUY to close current stage remainder"]
+    SC -- no --> SN["next_stage = floor(abs(position) / stage_size) + 1<br/>open = offset + next_stage * threshold"]
+    SN --> SPC{"next_stage <= max_stages and sell_price > open?"}
+    SPC -- yes --> COMPLETE_SHORT["Target SELL to fill next stage remainder"]
     SPC -- no --> NONE2[No target]
 
     POS -- position == 0 --> ENTRY["buy_open = offset - threshold<br/>sell_open = offset + threshold"]
