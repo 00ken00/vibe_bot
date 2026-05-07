@@ -21,9 +21,11 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --threshold-jpy 1000 \
   --threshold-offset-jpy 0 \
   --order-size 0.001 \
-  --max-position 0.003 \
+  --stage-size 0.001 \
+  --max-stages 3 \
   --maker-update-interval 0.5 \
-  --monitor-update-interval 1.0
+  --monitor-update-interval 1.0 \
+  --disable-bitflyer-hedge
 ```
 
 Open the monitor locally:
@@ -40,7 +42,9 @@ Override parameters by changing the CLI values:
 python3 src/trades/bitbank_bitflyer_arbitrage.py \
   --threshold-jpy 1500 \
   --threshold-offset-jpy 200 \
-  --order-size 0.0005
+  --order-size 0.0005 \
+  --stage-size 0.001 \
+  --max-stages 3
 ```
 
 Live trading is explicit and will place real bitbank maker orders and bitFlyer hedge orders:
