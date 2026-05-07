@@ -5,6 +5,7 @@ import html
 import logging
 import threading
 import time
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
@@ -84,6 +85,7 @@ class WebApp:
         quote = self.state.quote
         active = self.state.active_maker
         uptime = time.time() - self.state.started_at
+        stage_status = self._stage_status()
         return {
             "type": "snapshot",
             "timestamp": time.time(),
@@ -97,6 +99,7 @@ class WebApp:
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
+            "stage_status": stage_status,
             "action_history": [
                 {
                     "timestamp": entry.timestamp,
@@ -120,6 +123,61 @@ class WebApp:
                 "timestamp": quote.timestamp,
             },
             "active_maker": active,
+        }
+
+    def _stage_status(self) -> dict[str, object]:
+        position = self.state.position
+        abs_position = abs(position)
+        threshold = self.config.threshold_jpy
+        offset = self.config.threshold_offset_jpy
+        stage_size = self.config.stage_size
+        max_position = self.config.max_position
+
+        if abs_position > 0:
+            current_stage_decimal = (abs_position / stage_size).to_integral_value(
+                rounding=ROUND_UP
+            )
+            current_stage = max(1, int(current_stage_decimal))
+        else:
+            current_stage = 0
+
+        completed_stage_decimal = (abs_position / stage_size).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+        next_stage = int(completed_stage_decimal) + 1
+        can_open_next = next_stage <= self.config.max_stages
+
+        next_target_position = min(stage_size * Decimal(next_stage), max_position)
+        next_open_amount = min(self.config.order_size, next_target_position - abs_position)
+        current_stage_floor = stage_size * Decimal(max(current_stage - 1, 0))
+        close_amount = min(self.config.order_size, abs_position - current_stage_floor)
+
+        long_open_trigger = (
+            offset - Decimal(next_stage) * threshold if can_open_next else None
+        )
+        short_open_trigger = (
+            offset + Decimal(next_stage) * threshold if can_open_next else None
+        )
+        long_close_trigger = (
+            offset - Decimal(current_stage - 1) * threshold if position > 0 else None
+        )
+        short_close_trigger = (
+            offset + Decimal(current_stage - 1) * threshold if position < 0 else None
+        )
+
+        return {
+            "position": position,
+            "current_stage": current_stage,
+            "next_stage": next_stage if can_open_next else None,
+            "stage_size": stage_size,
+            "max_stages": self.config.max_stages,
+            "max_position": max_position,
+            "long_open_trigger": long_open_trigger,
+            "long_close_trigger": long_close_trigger,
+            "short_open_trigger": short_open_trigger,
+            "short_close_trigger": short_close_trigger,
+            "next_open_amount": next_open_amount if can_open_next else None,
+            "close_amount": close_amount if abs_position > 0 else None,
         }
 
     def _parameters_html(self) -> str:
@@ -228,6 +286,11 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   grid-template-columns: repeat(4, minmax(170px, 1fr));
   gap: 10px;
 }}
+.stage-grid {{
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 10px;
+}}
 .history {{
   background: var(--panel);
   border: 1px solid var(--line);
@@ -297,14 +360,14 @@ canvas {{ width: 100%; height: 480px; display: block; }}
 .param span {{ color: var(--muted); font-size: 12px; }}
 .param strong {{ font-size: 14px; font-weight: 600; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }}
 @media (max-width: 980px) {{
-  .metrics, .table {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  .metrics, .table, .stage-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
   .param-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
   canvas {{ height: 390px; }}
 }}
 @media (max-width: 560px) {{
   header {{ align-items: flex-start; height: auto; gap: 8px; padding: 12px; flex-direction: column; }}
   main {{ padding: 10px; }}
-  .metrics, .table {{ grid-template-columns: 1fr; }}
+  .metrics, .table, .stage-grid {{ grid-template-columns: 1fr; }}
   .param-grid {{ grid-template-columns: 1fr; }}
   canvas {{ height: 340px; }}
 }}
@@ -341,6 +404,14 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
     <div class="metric"><div class="label">Uptime</div><div id="uptime" class="value">--</div></div>
+  </section>
+  <section class="stage-grid">
+    <div class="metric"><div class="label">Current Stage</div><div id="stageCurrent" class="value">--</div></div>
+    <div class="metric"><div class="label">Next Stage</div><div id="stageNext" class="value">--</div></div>
+    <div class="metric"><div class="label">Long Open / Close</div><div id="stageLong" class="value">--</div></div>
+    <div class="metric"><div class="label">Short Open / Close</div><div id="stageShort" class="value">--</div></div>
+    <div class="metric"><div class="label">Next Open BTC</div><div id="stageOpenAmount" class="value">--</div></div>
+    <div class="metric"><div class="label">Close BTC</div><div id="stageCloseAmount" class="value">--</div></div>
   </section>
   <section class="history">
     <div class="history-title">Bot Action History</div>
@@ -437,6 +508,17 @@ function renderMetrics() {{
   setText("bbDepth", `${{fmt.format(num(q.bitbank_bid_vwap || 0))}} / ${{fmt.format(num(q.bitbank_ask_vwap || 0))}}`);
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
   setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
+  const s = latest.stage_status || {{}};
+  const longOpen = s.long_open_trigger == null ? "--" : fmt.format(num(s.long_open_trigger));
+  const longClose = s.long_close_trigger == null ? "--" : fmt.format(num(s.long_close_trigger));
+  const shortOpen = s.short_open_trigger == null ? "--" : fmt.format(num(s.short_open_trigger));
+  const shortClose = s.short_close_trigger == null ? "--" : fmt.format(num(s.short_close_trigger));
+  setText("stageCurrent", `${{s.current_stage ?? "--"}} / ${{s.max_stages ?? "--"}}`);
+  setText("stageNext", s.next_stage == null ? "--" : `${{s.next_stage}} / ${{s.max_stages}}`);
+  setText("stageLong", `${{longOpen}} / ${{longClose}}`);
+  setText("stageShort", `${{shortOpen}} / ${{shortClose}}`);
+  setText("stageOpenAmount", s.next_open_amount == null ? "--" : btcFmt.format(num(s.next_open_amount)));
+  setText("stageCloseAmount", s.close_amount == null ? "--" : btcFmt.format(num(s.close_amount)));
   if (latest.active_maker) {{
     const m = latest.active_maker;
     const account = m.position_side ? `margin ${{m.position_side}}` : "spot";
