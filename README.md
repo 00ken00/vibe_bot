@@ -96,7 +96,9 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py --help
 Pull the latest code on the remote VM from your local shell:
 
 ```bash
-gcloud compute ssh veryshj@vibe-bot --command "cd vibe_bot && git pull"
+gcloud compute ssh veryshj123@vibe-bot --command "cd vibe_bot && git pull"
+
+gcloud compute ssh veryshj@vibe-bot -- -t 'cd vibe_bot && git -c color.ui=always pull'
 ```
 
 The image does not copy this repository. It only copies `requirements-dev.lock` during build, installs Python/Jupyter dependencies from that lock file, and uses `PYTHONPATH=/workspace/vibe_bot/src`.
