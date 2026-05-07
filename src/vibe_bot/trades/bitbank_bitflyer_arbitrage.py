@@ -585,14 +585,19 @@ class ArbitrageTrader:
         buy_open_trigger = offset - threshold
         sell_open_trigger = offset + threshold
         position = self.state.position
+        entry_unit = min(self.config.order_size, self.config.max_position)
 
         if position > 0:
             if sell_price > offset:
                 return self._build_target("SELL", offset)
+            if position < entry_unit and buy_price < buy_open_trigger:
+                return self._build_target("BUY", buy_open_trigger)
             return None
         if position < 0:
             if buy_price < offset:
                 return self._build_target("BUY", offset)
+            if abs(position) < entry_unit and sell_price > sell_open_trigger:
+                return self._build_target("SELL", sell_open_trigger)
             return None
 
         buy_edge = buy_open_trigger - buy_price
@@ -609,10 +614,14 @@ class ArbitrageTrader:
             capacity = self.config.max_position - position
             if position < 0:
                 capacity = min(abs(position), self.config.order_size)
+            elif position > 0:
+                capacity = min(self.config.order_size - position, capacity)
             return min(self.config.order_size, capacity)
         capacity = self.config.max_position + position
         if position > 0:
             capacity = min(position, self.config.order_size)
+        elif position < 0:
+            capacity = min(self.config.order_size + position, capacity)
         return min(self.config.order_size, capacity)
 
     def _build_target(self, action: str, trigger: Decimal) -> MakerOrder | None:
@@ -663,11 +672,12 @@ class ArbitrageTrader:
     def _same_maker(self, current: MakerOrder | None, target: MakerOrder) -> bool:
         if current is None:
             return False
+        current_remaining = current.amount - current.executed_amount
         return (
             current.action == target.action
             and current.side == target.side
             and current.price == target.price
-            and current.amount == target.amount
+            and current_remaining == target.amount
         )
 
     def _log_private_api_trace(self, payload: dict[str, object]) -> None:

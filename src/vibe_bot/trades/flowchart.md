@@ -39,16 +39,20 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    START[quote ready] --> CALC[Compute buy_price and sell_price from VWAP]
+    START[quote ready] --> CALC["Compute buy_price, sell_price, buy_open, sell_open, entry_unit"]
     CALC --> POS{position}
 
     POS -- position > 0 --> LC{"sell_price > offset?"}
     LC -- yes --> CLOSE_LONG[Target SELL, trigger = offset]
-    LC -- no --> NONE1[No target]
+    LC -- no --> LPC{"position < entry_unit and buy_price < buy_open?"}
+    LPC -- yes --> COMPLETE_LONG["Continue BUY entry for remaining order_size - position"]
+    LPC -- no --> NONE1[No target]
 
     POS -- position < 0 --> SC{"buy_price < offset?"}
     SC -- yes --> CLOSE_SHORT[Target BUY, trigger = offset]
-    SC -- no --> NONE2[No target]
+    SC -- no --> SPC{"abs(position) < entry_unit and sell_price > sell_open?"}
+    SPC -- yes --> COMPLETE_SHORT["Continue SELL entry for remaining order_size - abs(position)"]
+    SPC -- no --> NONE2[No target]
 
     POS -- position == 0 --> ENTRY["buy_open = offset - threshold<br/>sell_open = offset + threshold"]
     ENTRY --> BE[buy_edge = buy_open - buy_price]
