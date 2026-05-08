@@ -152,12 +152,13 @@ class WebApp:
         current_stage_floor = stage_size * Decimal(max(current_stage - 1, 0))
         close_amount = min(self.config.order_size, abs_position - current_stage_floor)
 
-        long_open_trigger = (
-            offset - Decimal(next_stage) * threshold if can_open_next else None
-        )
-        short_open_trigger = (
-            offset + Decimal(next_stage) * threshold if can_open_next else None
-        )
+        long_open_trigger = None
+        short_open_trigger = None
+        if can_open_next:
+            if position >= 0:
+                long_open_trigger = offset - Decimal(next_stage) * threshold
+            if position <= 0:
+                short_open_trigger = offset + Decimal(next_stage) * threshold
         long_close_trigger = (
             offset - Decimal(current_stage - 1) * threshold if position > 0 else None
         )
