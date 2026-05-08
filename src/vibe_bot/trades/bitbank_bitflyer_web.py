@@ -231,7 +231,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
 }}
 .stage-grid {{
   display: grid;
-  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
   gap: 10px;
 }}
 .history {{
@@ -350,7 +350,6 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   </section>
   <section class="stage-grid">
     <div class="metric"><div class="label">Current Stage</div><div id="stageCurrent" class="value">--</div></div>
-    <div class="metric"><div class="label">Next Stage</div><div id="stageNext" class="value">--</div></div>
     <div class="metric"><div class="label">Long Open / Close</div><div id="stageLong" class="value">--</div></div>
     <div class="metric"><div class="label">Short Open / Close</div><div id="stageShort" class="value">--</div></div>
     <div class="metric"><div class="label">Next Open BTC</div><div id="stageOpenAmount" class="value">--</div></div>
@@ -457,7 +456,6 @@ function renderMetrics() {{
   const shortOpen = s.short_open_trigger == null ? "--" : fmt.format(num(s.short_open_trigger));
   const shortClose = s.short_close_trigger == null ? "--" : fmt.format(num(s.short_close_trigger));
   setText("stageCurrent", `${{s.current_stage ?? "--"}} / ${{s.max_stages ?? "--"}}`);
-  setText("stageNext", s.next_stage == null ? "--" : `${{s.next_stage}} / ${{s.max_stages}}`);
   setText("stageLong", `${{longOpen}} / ${{longClose}}`);
   setText("stageShort", `${{shortOpen}} / ${{shortClose}}`);
   setText("stageOpenAmount", s.next_open_amount == null ? "--" : btcFmt.format(num(s.next_open_amount)));
