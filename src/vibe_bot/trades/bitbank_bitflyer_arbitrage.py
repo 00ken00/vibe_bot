@@ -163,6 +163,22 @@ class MakerOrder:
 
 
 @dataclass
+class StageStatus:
+    position: Decimal = Decimal("0")
+    current_stage: int = 0
+    next_stage: int | None = 1
+    stage_size: Decimal = Decimal("0")
+    max_stages: int = 0
+    max_position: Decimal = Decimal("0")
+    long_open_trigger: Decimal | None = None
+    long_close_trigger: Decimal | None = None
+    short_open_trigger: Decimal | None = None
+    short_close_trigger: Decimal | None = None
+    next_open_amount: Decimal | None = None
+    close_amount: Decimal | None = None
+
+
+@dataclass
 class ActionHistoryEntry:
     timestamp: float
     action: BotAction
@@ -183,6 +199,7 @@ class BotState:
     filled_base: Decimal = Decimal("0")
     trade_count: int = 0
     active_maker: MakerOrder | None = None
+    stage_status: StageStatus = field(default_factory=StageStatus)
     last_action: BotAction = BotAction.IDLE
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
     last_error: str = ""
@@ -553,6 +570,7 @@ class ArbitrageTrader:
                     self.logger.event("error", message=self.state.last_error)
                     stop.set()
                     raise
+            self.state.stage_status = self._stage_status()
             while not stop.is_set():
                 try:
                     await self._tick()
@@ -574,6 +592,7 @@ class ArbitrageTrader:
         if not quote.ready:
             self.state.set_action(BotAction.WAITING_FOR_QUOTES, "quote.ready=false")
             return
+        self.state.stage_status = self._stage_status()
         await self._refresh_active_maker()
         target = self._choose_target()
         if target is None:
@@ -597,45 +616,102 @@ class ArbitrageTrader:
         threshold = self.config.threshold_jpy
         offset = self.config.threshold_offset_jpy
         position = self.state.position
-        abs_position = abs(position)
+        stage_status = self.state.stage_status
 
         if position > 0:
-            current_stage = self._ceil_stage(abs_position)
-            close_trigger = offset - Decimal(current_stage - 1) * threshold
+            current_stage = stage_status.current_stage
+            close_trigger = stage_status.long_close_trigger
+            assert close_trigger is not None
             if sell_price > close_trigger:
-                amount = self._close_stage_amount(abs_position, current_stage)
+                amount = stage_status.close_amount
+                assert amount is not None
                 return self._build_target("SELL", close_trigger, amount, current_stage)
-            next_stage = self._next_stage(abs_position)
-            if next_stage <= self.config.max_stages:
-                open_trigger = offset - Decimal(next_stage) * threshold
-                if buy_price < open_trigger:
-                    amount = self._open_stage_amount(abs_position, next_stage)
-                    return self._build_target("BUY", open_trigger, amount, next_stage)
+            next_stage = stage_status.next_stage
+            open_trigger = stage_status.long_open_trigger
+            if next_stage is not None and open_trigger is not None and buy_price < open_trigger:
+                amount = stage_status.next_open_amount
+                assert amount is not None
+                return self._build_target("BUY", open_trigger, amount, next_stage)
             return None
         if position < 0:
-            current_stage = self._ceil_stage(abs_position)
-            close_trigger = offset + Decimal(current_stage - 1) * threshold
+            current_stage = stage_status.current_stage
+            close_trigger = stage_status.short_close_trigger
+            assert close_trigger is not None
             if buy_price < close_trigger:
-                amount = self._close_stage_amount(abs_position, current_stage)
+                amount = stage_status.close_amount
+                assert amount is not None
                 return self._build_target("BUY", close_trigger, amount, current_stage)
-            next_stage = self._next_stage(abs_position)
-            if next_stage <= self.config.max_stages:
-                open_trigger = offset + Decimal(next_stage) * threshold
-                if sell_price > open_trigger:
-                    amount = self._open_stage_amount(abs_position, next_stage)
-                    return self._build_target("SELL", open_trigger, amount, next_stage)
+            next_stage = stage_status.next_stage
+            open_trigger = stage_status.short_open_trigger
+            if next_stage is not None and open_trigger is not None and sell_price > open_trigger:
+                amount = stage_status.next_open_amount
+                assert amount is not None
+                return self._build_target("SELL", open_trigger, amount, next_stage)
             return None
 
         buy_open_trigger = offset - threshold
         sell_open_trigger = offset + threshold
         buy_edge = buy_open_trigger - buy_price
         sell_edge = sell_price - sell_open_trigger
-        amount = self._open_stage_amount(Decimal("0"), 1)
+        amount = stage_status.next_open_amount
+        assert amount is not None
         if buy_edge <= 0 and sell_edge <= 0:
             return None
         if sell_edge > buy_edge:
             return self._build_target("SELL", sell_open_trigger, amount, 1)
         return self._build_target("BUY", buy_open_trigger, amount, 1)
+
+    def _stage_status(self) -> StageStatus:
+        position = self.state.position
+        abs_position = abs(position)
+        threshold = self.config.threshold_jpy
+        offset = self.config.threshold_offset_jpy
+        stage_size = self.config.stage_size
+        max_position = self.config.max_position
+
+        current_stage = self._ceil_stage(abs_position) if abs_position > 0 else 0
+        next_stage = self._next_stage(abs_position)
+        can_open_next = next_stage <= self.config.max_stages
+
+        next_open_amount = (
+            self._open_stage_amount(abs_position, next_stage) if can_open_next else None
+        )
+        close_amount = (
+            self._close_stage_amount(abs_position, current_stage)
+            if abs_position > 0
+            else None
+        )
+
+        long_open_trigger = None
+        short_open_trigger = None
+        if can_open_next:
+            if position >= 0:
+                long_open_trigger = offset - Decimal(next_stage) * threshold
+            if position <= 0:
+                short_open_trigger = offset + Decimal(next_stage) * threshold
+
+        return StageStatus(
+            position=position,
+            current_stage=current_stage,
+            next_stage=next_stage if can_open_next else None,
+            stage_size=stage_size,
+            max_stages=self.config.max_stages,
+            max_position=max_position,
+            long_open_trigger=long_open_trigger,
+            long_close_trigger=(
+                offset - Decimal(current_stage - 1) * threshold
+                if position > 0
+                else None
+            ),
+            short_open_trigger=short_open_trigger,
+            short_close_trigger=(
+                offset + Decimal(current_stage - 1) * threshold
+                if position < 0
+                else None
+            ),
+            next_open_amount=next_open_amount,
+            close_amount=close_amount,
+        )
 
     def _ceil_stage(self, abs_position: Decimal) -> int:
         stage = (abs_position / self.config.stage_size).to_integral_value(

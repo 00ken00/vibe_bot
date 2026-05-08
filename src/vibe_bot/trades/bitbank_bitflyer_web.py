@@ -5,7 +5,6 @@ import html
 import logging
 import threading
 import time
-from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
@@ -85,7 +84,6 @@ class WebApp:
         quote = self.state.quote
         active = self.state.active_maker
         uptime = time.time() - self.state.started_at
-        stage_status = self._stage_status()
         return {
             "type": "snapshot",
             "timestamp": time.time(),
@@ -99,7 +97,7 @@ class WebApp:
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
-            "stage_status": stage_status,
+            "stage_status": self.state.stage_status,
             "action_history": [
                 {
                     "timestamp": entry.timestamp,
@@ -123,62 +121,6 @@ class WebApp:
                 "timestamp": quote.timestamp,
             },
             "active_maker": active,
-        }
-
-    def _stage_status(self) -> dict[str, object]:
-        position = self.state.position
-        abs_position = abs(position)
-        threshold = self.config.threshold_jpy
-        offset = self.config.threshold_offset_jpy
-        stage_size = self.config.stage_size
-        max_position = self.config.max_position
-
-        if abs_position > 0:
-            current_stage_decimal = (abs_position / stage_size).to_integral_value(
-                rounding=ROUND_UP
-            )
-            current_stage = max(1, int(current_stage_decimal))
-        else:
-            current_stage = 0
-
-        completed_stage_decimal = (abs_position / stage_size).to_integral_value(
-            rounding=ROUND_DOWN
-        )
-        next_stage = int(completed_stage_decimal) + 1
-        can_open_next = next_stage <= self.config.max_stages
-
-        next_target_position = min(stage_size * Decimal(next_stage), max_position)
-        next_open_amount = min(self.config.order_size, next_target_position - abs_position)
-        current_stage_floor = stage_size * Decimal(max(current_stage - 1, 0))
-        close_amount = min(self.config.order_size, abs_position - current_stage_floor)
-
-        long_open_trigger = None
-        short_open_trigger = None
-        if can_open_next:
-            if position >= 0:
-                long_open_trigger = offset - Decimal(next_stage) * threshold
-            if position <= 0:
-                short_open_trigger = offset + Decimal(next_stage) * threshold
-        long_close_trigger = (
-            offset - Decimal(current_stage - 1) * threshold if position > 0 else None
-        )
-        short_close_trigger = (
-            offset + Decimal(current_stage - 1) * threshold if position < 0 else None
-        )
-
-        return {
-            "position": position,
-            "current_stage": current_stage,
-            "next_stage": next_stage if can_open_next else None,
-            "stage_size": stage_size,
-            "max_stages": self.config.max_stages,
-            "max_position": max_position,
-            "long_open_trigger": long_open_trigger,
-            "long_close_trigger": long_close_trigger,
-            "short_open_trigger": short_open_trigger,
-            "short_close_trigger": short_close_trigger,
-            "next_open_amount": next_open_amount if can_open_next else None,
-            "close_amount": close_amount if abs_position > 0 else None,
         }
 
     def _parameters_html(self) -> str:
