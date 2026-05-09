@@ -22,7 +22,6 @@ class HistoryConfig:
     bitflyer_product_code: str = "FX_BTC_JPY"
     days: int = 5
     candle_minutes: int = 5
-    tick_size: Decimal = Decimal("1")
 
 
 @dataclass(frozen=True)
@@ -40,9 +39,8 @@ async def fetch_historical_spreads(
 ) -> list[HistoricalSpreadPoint]:
     """Fetch candle-based historical spread estimates.
 
-    Candlesticks do not include bid/ask or order-book depth, so this estimates:
-    BUY = bitbank close - tick - bitFlyer close
-    SELL = bitbank close + tick - bitFlyer close
+    Candlesticks do not include bid/ask or order-book depth, so BUY and SELL
+    both use the candle close spread: bitbank close - bitFlyer close.
     """
     now = datetime.now(tz=JST)
     start = now - timedelta(days=config.days)
@@ -81,8 +79,8 @@ async def fetch_historical_spreads(
         points.append(
             HistoricalSpreadPoint(
                 timestamp=timestamp,
-                buy_price=(bitbank_close - config.tick_size) - bitflyer_close,
-                sell_price=(bitbank_close + config.tick_size) - bitflyer_close,
+                buy_price=close_spread,
+                sell_price=close_spread,
                 close_spread=close_spread,
                 bitbank_close=bitbank_close,
                 bitflyer_close=bitflyer_close,
@@ -251,7 +249,6 @@ def main(
     bitflyer_product_code: str = "FX_BTC_JPY",
     days: int = 5,
     candle_minutes: int = 5,
-    tick_size: Decimal | str = Decimal("1"),
     output_html: Path | str | None = None,
 ) -> go.Figure:
     """Fetch historical candles and open a Plotly spread chart.
@@ -264,15 +261,11 @@ def main(
         raise ValueError("days must be positive")
     if candle_minutes not in (1, 5, 15, 30):
         raise ValueError("candle_minutes must be one of 1, 5, 15, 30")
-    tick = Decimal(str(tick_size))
-    if tick <= 0:
-        raise ValueError("tick_size must be positive")
     config = HistoryConfig(
         bitbank_pair=bitbank_pair,
         bitflyer_product_code=bitflyer_product_code,
         days=days,
         candle_minutes=candle_minutes,
-        tick_size=tick,
     )
     return asyncio.run(_run(config, output_html))
 
@@ -349,6 +342,5 @@ if __name__ == "__main__":
         bitflyer_product_code="FX_BTC_JPY",
         days=5,
         candle_minutes=5,
-        tick_size="1",
         output_html=None,
     )
