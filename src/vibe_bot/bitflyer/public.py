@@ -97,6 +97,36 @@ class PublicClient:
         )
         return FundingRate.model_validate(data)
 
+    async def lightchart_ohlc(
+        self,
+        symbol: str = "FX_BTC_JPY",
+        *,
+        period: str = "m",
+        grouping: int = 5,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> list[list[object]]:
+        """Fetch bitFlyer LightChart OHLC rows.
+
+        This is the chart service used by bitFlyer Lightning, separate from the
+        official `/v1` REST host. Rows are returned newest-first as:
+        [unix_ms, open, high, low, close, ...].
+        """
+        params: dict[str, object] = {
+            "symbol": symbol,
+            "period": period,
+            "grouping": grouping,
+            "type": "full",
+        }
+        if before is not None:
+            params["before"] = before
+        if after is not None:
+            params["after"] = after
+        data = await self._http.public_url(
+            "GET", "https://lightchart.bitflyer.com/api/ohlc", params=params
+        )
+        return list(data or [])
+
     async def corporate_leverage(self) -> CorporateLeverage:
         data = await self._http.public("GET", "/getcorporateleverage")
         return CorporateLeverage.model_validate(data)

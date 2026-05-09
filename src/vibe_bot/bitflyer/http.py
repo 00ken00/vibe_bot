@@ -74,6 +74,22 @@ class HttpClient:
         full_path = REST_PATH_PREFIX + path
         return await self._request(method, full_path, params=params, signed=False)
 
+    async def public_url(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict | None = None,
+    ) -> Any:
+        await self._limiter.acquire()
+        try:
+            resp = await self._client.request(
+                method.upper(), url, params=params, follow_redirects=True
+            )
+        except httpx.HTTPError as e:
+            raise TransportError(f"{type(e).__name__}: {e}") from e
+        return self._parse(resp)
+
     async def private(
         self,
         method: str,
