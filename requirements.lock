@@ -26,6 +26,12 @@ httpx==0.28.1
 idna==3.13
     # via anyio
     # via httpx
+narwhals==2.21.0
+    # via plotly
+packaging==26.2
+    # via plotly
+plotly==6.7.0
+    # via vibe-bot
 pydantic==2.13.3
     # via vibe-bot
 pydantic-core==2.46.3

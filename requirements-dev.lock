@@ -133,6 +133,8 @@ matplotlib-inline==0.2.1
     # via ipython
 mistune==3.2.1
     # via nbconvert
+narwhals==2.21.0
+    # via plotly
 nbclient==0.10.4
     # via nbconvert
 nbconvert==7.17.1
@@ -152,6 +154,7 @@ packaging==26.2
     # via jupyterlab
     # via jupyterlab-server
     # via nbconvert
+    # via plotly
 pandocfilters==1.5.1
     # via nbconvert
 parso==0.8.7
@@ -160,6 +163,8 @@ pexpect==4.9.0
     # via ipython
 platformdirs==4.9.6
     # via jupyter-core
+plotly==6.7.0
+    # via vibe-bot
 prometheus-client==0.25.0
     # via jupyter-server
 prompt-toolkit==3.0.52
