@@ -11,6 +11,7 @@
     "httpx",
     "jsonable",
     "ohlc",
+    "plotly",
     "pydantic",
     "veryshj",
     "vwap"
