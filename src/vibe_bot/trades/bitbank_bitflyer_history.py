@@ -101,6 +101,10 @@ def build_figure(
     close = [float(point.close_spread) for point in points]
     bitbank_close = [float(point.bitbank_close) for point in points]
     bitflyer_close = [float(point.bitflyer_close) for point in points]
+    buy_average = sum(buy) / len(buy)
+    sell_average = sum(sell) / len(sell)
+    buy_average_series = [buy_average] * len(x)
+    sell_average_series = [sell_average] * len(x)
 
     fig = make_subplots(
         rows=2,
@@ -171,6 +175,32 @@ def build_figure(
         line_dash="dash",
         line_color="#101828",
         opacity=0.45,
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=buy_average_series,
+            mode="lines",
+            name=f"BUY avg {buy_average:,.2f}",
+            line={"color": "#1464d2", "width": 1, "dash": "dash"},
+            hovertemplate="BUY avg %{y:,.2f}<extra></extra>",
+            showlegend=True,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=sell_average_series,
+            mode="lines",
+            name=f"SELL avg {sell_average:,.2f}",
+            line={"color": "#c2410c", "width": 1, "dash": "dash"},
+            hovertemplate="SELL avg %{y:,.2f}<extra></extra>",
+            showlegend=True,
+        ),
         row=1,
         col=1,
     )
