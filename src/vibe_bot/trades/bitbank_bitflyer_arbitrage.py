@@ -30,6 +30,7 @@ from vibe_bot.trades.bitbank_bitflyer_utils import local_date_stamp
 from vibe_bot.trades.bitbank_bitflyer_utils import quantize_down
 from vibe_bot.trades.bitbank_bitflyer_utils import quantize_up
 from vibe_bot.trades.bitbank_bitflyer_web import WebApp
+from vibe_bot.trades.bitbank_bitflyer_history import HistoricalSpreadCache
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_arbitrage")
 
@@ -87,6 +88,9 @@ class BotConfig:
     web_host: str = "0.0.0.0"
     web_port: int = 8765
     ws_port: int = 8766
+    history_days: int = 5
+    history_candle_minutes: int = 5
+    history_refresh_interval: float = 3600.0
     log_dir: Path = Path("logs/trades/bitbank_bitflyer_arbitrage")
 
     @property
@@ -1211,7 +1215,8 @@ async def run_bot(config: BotConfig) -> None:
     logger = TradeLogger(config.log_dir)
     broadcaster = Broadcaster()
     stop = asyncio.Event()
-    web = WebApp(config, state, broadcaster)
+    history = HistoricalSpreadCache(config, logger)
+    web = WebApp(config, state, broadcaster, history)
     quote_feed = WebSocketQuoteFeed(config, state, logger)
     trader = ArbitrageTrader(config, state, logger)
 
@@ -1235,6 +1240,7 @@ async def run_bot(config: BotConfig) -> None:
         asyncio.create_task(trader.run(stop)),
         asyncio.create_task(web.run_ws(stop)),
         asyncio.create_task(web.publish_loop(stop)),
+        asyncio.create_task(history.run(stop)),
     ]
     try:
         await stop.wait()
@@ -1285,6 +1291,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--web-host", default="0.0.0.0")
     parser.add_argument("--web-port", type=int, default=8765)
     parser.add_argument("--ws-port", type=int, default=8766)
+    parser.add_argument(
+        "--history-days",
+        type=int,
+        default=5,
+        help="number of recent days to plot in the candle-based historical spread chart",
+    )
+    parser.add_argument(
+        "--history-candle-minutes",
+        type=int,
+        default=5,
+        choices=(1, 5, 15, 30),
+        help="candlestick interval in minutes for the historical spread chart",
+    )
+    parser.add_argument(
+        "--history-refresh-interval",
+        type=float,
+        default=3600.0,
+        help="seconds between historical spread refreshes",
+    )
     parser.add_argument("--log-dir", type=Path, default=Path("logs/trades/bitbank_bitflyer_arbitrage"))
     parser.add_argument("--live", action="store_true", help="place real orders")
     parser.add_argument(
@@ -1315,6 +1340,10 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--maker-update-interval must be positive")
     if args.monitor_update_interval <= 0:
         raise SystemExit("--monitor-update-interval must be positive")
+    if args.history_days <= 0:
+        raise SystemExit("--history-days must be positive")
+    if args.history_refresh_interval <= 0:
+        raise SystemExit("--history-refresh-interval must be positive")
     return BotConfig(
         bitbank_pair=args.bitbank_pair,
         bitflyer_product_code=args.bitflyer_product_code,
@@ -1332,6 +1361,9 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         web_host=args.web_host,
         web_port=args.web_port,
         ws_port=args.ws_port,
+        history_days=args.history_days,
+        history_candle_minutes=args.history_candle_minutes,
+        history_refresh_interval=args.history_refresh_interval,
         log_dir=args.log_dir,
     )
 
