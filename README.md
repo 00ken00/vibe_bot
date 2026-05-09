@@ -12,7 +12,7 @@ src/trades/bitbank_bitflyer_arbitrage.py
 
 Trade logic diagrams are in [src/vibe_bot/trades/flowchart.md](src/vibe_bot/trades/flowchart.md).
 
-Dry-run is the default mode. It streams public order books over websocket, estimates full-size execution prices for the configured order size, computes the BUY/SELL spreads, chooses the bitbank maker quote it would maintain, updates the web monitor, and writes logs. It does not place orders.
+Dry-run is the default mode. It streams public order books over websocket, estimates the bitFlyer hedge VWAP for the configured order size, computes BUY/SELL spreads from bitbank aggressive maker prices, chooses the bitbank maker quote it would maintain, updates the web monitor, and writes logs. It does not place orders.
 
 Run dry-run:
 

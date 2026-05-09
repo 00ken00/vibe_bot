@@ -196,6 +196,9 @@ class BotState:
     quote: Quote = field(default_factory=Quote)
     position: Decimal = Decimal("0")
     realized_pnl_jpy: Decimal = Decimal("0")
+    bitbank_realized_pnl_jpy: Decimal = Decimal("0")
+    bitbank_open_cost_jpy: Decimal = Decimal("0")
+    bitbank_cost_basis_ready: bool = True
     filled_base: Decimal = Decimal("0")
     trade_count: int = 0
     active_maker: MakerOrder | None = None
@@ -271,29 +274,37 @@ class TradeLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stamp = local_date_stamp()
         self.events_path = self.log_dir / f"events-{stamp}.jsonl"
+        fieldnames = [
+            "timestamp",
+            "action",
+            "bitbank_order_id",
+            "bitbank_side",
+            "bitbank_price",
+            "bitbank_amount",
+            "bitflyer_side",
+            "bitflyer_expected_price",
+            "bitflyer_average_price",
+            "slippage_jpy",
+            "cashflow_jpy",
+            "position",
+            "realized_pnl_jpy",
+            "bitbank_fill_pnl_jpy",
+            "bitbank_realized_pnl_jpy",
+            "bitbank_open_cost_jpy",
+            "bitbank_cost_basis_ready",
+            "dry_run",
+            "hedge_enabled",
+            "hedge_executed",
+        ]
         self.trades_path = self.log_dir / f"trades-{stamp}.csv"
+        if self.trades_path.exists() and self.trades_path.stat().st_size > 0:
+            with self.trades_path.open(newline="") as f:
+                existing_header = next(csv.reader(f), [])
+            if existing_header != fieldnames:
+                suffix = time.strftime("%H%M%S")
+                self.trades_path = self.log_dir / f"trades-{stamp}-{suffix}.csv"
         self._csv_file = self.trades_path.open("a", newline="")
-        self._csv = csv.DictWriter(
-            self._csv_file,
-            fieldnames=[
-                "timestamp",
-                "action",
-                "bitbank_order_id",
-                "bitbank_side",
-                "bitbank_price",
-                "bitbank_amount",
-                "bitflyer_side",
-                "bitflyer_expected_price",
-                "bitflyer_average_price",
-                "slippage_jpy",
-                "cashflow_jpy",
-                "position",
-                "realized_pnl_jpy",
-                "dry_run",
-                "hedge_enabled",
-                "hedge_executed",
-            ],
-        )
+        self._csv = csv.DictWriter(self._csv_file, fieldnames=fieldnames)
         if self.trades_path.stat().st_size == 0:
             self._csv.writeheader()
             self._csv_file.flush()
@@ -825,6 +836,17 @@ class ArbitrageTrader:
                 f"mismatch={mismatch}, tolerance={tolerance}"
             )
         self.state.position = bitbank_position
+        if bitbank_position == 0:
+            self.state.bitbank_cost_basis_ready = True
+            self.state.bitbank_open_cost_jpy = Decimal("0")
+        else:
+            self.state.bitbank_cost_basis_ready = False
+            self.state.bitbank_open_cost_jpy = Decimal("0")
+            self.logger.event(
+                "bitbank_pnl_cost_basis_unavailable",
+                reason="bot_started_with_nonzero_bitbank_position",
+                position=bitbank_position,
+            )
         if not self.config.hedge_enabled and mismatch > tolerance:
             self.logger.event("position_initialization_mismatch_ignored", **payload)
         self.logger.event("position_initialized", **payload, position=self.state.position)
@@ -1013,6 +1035,76 @@ class ArbitrageTrader:
             self.state.active_maker = None
             self.logger.event("maker_done", status=order.status, maker=asdict(maker))
 
+    def _apply_bitbank_pnl(
+        self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal
+    ) -> Decimal:
+        previous_position = self.state.position
+        if previous_position == 0:
+            self.state.bitbank_cost_basis_ready = True
+            self.state.bitbank_open_cost_jpy = Decimal("0")
+
+        if not self.state.bitbank_cost_basis_ready:
+            closes_unknown_position = (
+                maker.action == "SELL"
+                and previous_position > 0
+                and amount >= previous_position
+            ) or (
+                maker.action == "BUY"
+                and previous_position < 0
+                and amount >= abs(previous_position)
+            )
+            self.logger.event(
+                "bitbank_pnl_skipped",
+                reason="cost_basis_unavailable",
+                action=maker.action,
+                previous_position=previous_position,
+                fill_amount=amount,
+                fill_price=bitbank_fill_price,
+            )
+            if closes_unknown_position:
+                leftover = amount - abs(previous_position)
+                self.state.bitbank_cost_basis_ready = True
+                self.state.bitbank_open_cost_jpy = bitbank_fill_price * leftover
+            return Decimal("0")
+
+        realized = Decimal("0")
+        remaining_open_cost = self.state.bitbank_open_cost_jpy
+
+        if maker.action == "BUY":
+            if previous_position < 0:
+                close_amount = min(amount, abs(previous_position))
+                average_entry = remaining_open_cost / abs(previous_position)
+                realized = (average_entry - bitbank_fill_price) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = bitbank_fill_price * leftover
+            else:
+                remaining_open_cost += bitbank_fill_price * amount
+        else:
+            if previous_position > 0:
+                close_amount = min(amount, previous_position)
+                average_entry = remaining_open_cost / previous_position
+                realized = (bitbank_fill_price - average_entry) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = bitbank_fill_price * leftover
+            else:
+                remaining_open_cost += bitbank_fill_price * amount
+
+        next_position = (
+            previous_position + amount
+            if maker.action == "BUY"
+            else previous_position - amount
+        )
+        if next_position == 0:
+            remaining_open_cost = Decimal("0")
+
+        self.state.bitbank_open_cost_jpy = remaining_open_cost
+        self.state.bitbank_realized_pnl_jpy += realized
+        return realized
+
     async def _hedge_fill(
         self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal
     ) -> None:
@@ -1042,6 +1134,7 @@ class ArbitrageTrader:
                 expected_hedge_price=maker.expected_hedge_price,
             )
 
+        bitbank_fill_pnl = self._apply_bitbank_pnl(maker, amount, bitbank_fill_price)
         if maker.action == "BUY":
             cashflow = (actual_hedge_price - bitbank_fill_price) * amount
             self.state.position += amount
@@ -1068,6 +1161,10 @@ class ArbitrageTrader:
             cashflow_jpy=cashflow,
             position=self.state.position,
             realized_pnl_jpy=self.state.realized_pnl_jpy,
+            bitbank_fill_pnl_jpy=bitbank_fill_pnl,
+            bitbank_realized_pnl_jpy=self.state.bitbank_realized_pnl_jpy,
+            bitbank_open_cost_jpy=self.state.bitbank_open_cost_jpy,
+            bitbank_cost_basis_ready=self.state.bitbank_cost_basis_ready,
             dry_run=self.config.dry_run,
             hedge_enabled=self.config.hedge_enabled,
             hedge_executed=hedge_executed,
