@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import html
-import json
 import logging
 import threading
 import time
@@ -12,15 +11,12 @@ from typing import TYPE_CHECKING
 import websockets
 from websockets.asyncio.server import ServerConnection
 
-from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json
-
 if TYPE_CHECKING:
     from vibe_bot.trades.bitbank_bitflyer_arbitrage import (
         BotConfig,
         BotState,
         Broadcaster,
     )
-    from vibe_bot.trades.bitbank_bitflyer_history import HistoricalSpreadCache
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_web")
 
@@ -31,32 +27,17 @@ class WebApp:
         config: BotConfig,
         state: BotState,
         broadcaster: Broadcaster,
-        history: HistoricalSpreadCache | None = None,
     ) -> None:
         self.config = config
         self.state = state
         self.broadcaster = broadcaster
-        self.history = history
         self._httpd: ThreadingHTTPServer | None = None
 
     def start_http(self) -> None:
         html = self._html().encode()
-        history = self.history
-        json_dumps = lambda payload: json.dumps(
-            decimal_to_json(payload), separators=(",", ":")
-        ).encode()
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802
-                if self.path == "/history.json":
-                    payload = history.snapshot() if history is not None else {"points": []}
-                    body = json_dumps(payload)
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
                 if self.path not in ("/", "/index.html"):
                     self.send_response(404)
                     self.end_headers()
@@ -164,9 +145,6 @@ class WebApp:
             ("web_host", self.config.web_host),
             ("web_port", self.config.web_port),
             ("ws_port", self.config.ws_port),
-            ("history_days", self.config.history_days),
-            ("history_candle_minutes", self.config.history_candle_minutes),
-            ("history_refresh_interval", self.config.history_refresh_interval),
             ("log_dir", self.config.log_dir),
         ]
         rows = []
@@ -366,15 +344,6 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     </div>
     <canvas id="chart" width="1400" height="560"></canvas>
   </section>
-  <section class="chart-wrap">
-    <div class="legend">
-      <span class="key"><span class="swatch" style="background:var(--buy)"></span>approx BUY price</span>
-      <span class="key"><span class="swatch" style="background:var(--sell)"></span>approx SELL price</span>
-      <span class="key">historical candles: {self.config.history_candle_minutes}min / {self.config.history_days}d</span>
-      <span class="key" id="historyStatus">loading history</span>
-    </div>
-    <canvas id="historyChart" width="1400" height="420"></canvas>
-  </section>
   <section class="table">
     <div class="metric"><div class="label">bitbank Top Bid / Ask</div><div id="bb" class="value">--</div></div>
     <div class="metric"><div class="label">bitbank Maker Buy / Sell</div><div id="bbMaker" class="value">--</div></div>
@@ -413,7 +382,6 @@ canvas {{ width: 100%; height: 480px; display: block; }}
 const wsUrl = `${{window.location.protocol === "https:" ? "wss" : "ws"}}://${{window.location.hostname}}:{self.config.ws_port}`;
 const chartWindowMs = 60_000;
 const points = [];
-let historicalPoints = [];
 let latest = null;
 const fmt = new Intl.NumberFormat("ja-JP", {{ maximumFractionDigits: 2 }});
 const btcFmt = new Intl.NumberFormat("en-US", {{ minimumFractionDigits: 4, maximumFractionDigits: 8 }});
@@ -524,24 +492,6 @@ function renderActionHistory() {{
     return `<tr><td class="history-time">${{escapeHtml(timeText)}}</td><td class="history-action">${{escapeHtml(action)}}</td><td>${{escapeHtml(description)}}</td></tr>`;
   }}).join("");
 }}
-async function loadHistory() {{
-  try {{
-    const response = await fetch("/history.json", {{ cache: "no-store" }});
-    const payload = await response.json();
-    historicalPoints = (payload.points || []).map(p => ({{
-      t: num(p.timestamp),
-      buy: num(p.buy_price),
-      sell: num(p.sell_price)
-    }})).filter(p => Number.isFinite(p.t));
-    const refreshed = payload.last_refresh ? new Date(num(payload.last_refresh) * 1000).toLocaleTimeString() : "--";
-    const status = payload.last_error ? `history error: ${{payload.last_error}}` : `history points: ${{historicalPoints.length}} / refreshed ${{refreshed}}`;
-    setText("historyStatus", status);
-    drawHistory();
-    if (!historicalPoints.length && !payload.last_error) setTimeout(loadHistory, 2000);
-  }} catch (error) {{
-    setText("historyStatus", `history error: ${{error}}`);
-  }}
-}}
 function draw() {{
   const canvas = el("chart");
   const ctx = canvas.getContext("2d");
@@ -619,80 +569,8 @@ function draw() {{
     ctx.fillText(`maker ${{m.action}} ${{account}} effective spread ${{effectiveText}} / trigger ${{fmt.format(num(m.trigger_price))}} / order @ ${{fmt.format(num(m.price))}}`, left + 8, top + 18);
   }}
 }}
-function drawHistory() {{
-  const canvas = el("historyChart");
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, w, h);
-  const visible = historicalPoints;
-  const values = [];
-  visible.forEach(p => {{
-    if (Number.isFinite(p.buy)) values.push(p.buy);
-    if (Number.isFinite(p.sell)) values.push(p.sell);
-  }});
-  if (visible.length < 2 || values.length < 2) {{
-    ctx.fillStyle = "#667085";
-    ctx.font = "13px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-    ctx.fillText("historical candle spread is loading", 16, 28);
-    return;
-  }}
-  const minT = visible[0].t;
-  const maxT = visible[visible.length - 1].t;
-  let min = Math.min(...values), max = Math.max(...values);
-  const pad = Math.max(10, (max - min) * 0.12);
-  min -= pad; max += pad;
-  const left = 62, right = 18, top = 16, bottom = 34;
-  const cw = w - left - right, ch = h - top - bottom;
-  const x = t => left + (t - minT) * cw / (maxT - minT || 1);
-  const y = v => top + (max - v) * ch / (max - min || 1);
-  ctx.strokeStyle = "#d9dee8";
-  ctx.lineWidth = 1;
-  ctx.font = "12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-  ctx.fillStyle = "#667085";
-  for (let i = 0; i <= 5; i++) {{
-    const yy = top + i * ch / 5;
-    const val = max - i * (max - min) / 5;
-    ctx.beginPath(); ctx.moveTo(left, yy); ctx.lineTo(w - right, yy); ctx.stroke();
-    ctx.fillText(fmt.format(val), 8, yy + 4);
-  }}
-  for (let i = 0; i <= 5; i++) {{
-    const xx = left + i * cw / 5;
-    const t = minT + i * (maxT - minT) / 5;
-    const label = new Date(t).toLocaleDateString(undefined, {{ month: "numeric", day: "numeric" }});
-    ctx.fillText(label, xx - 14, h - 10);
-  }}
-  function line(key, color) {{
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    let moved = false;
-    visible.forEach(p => {{
-      const v = p[key];
-      if (!Number.isFinite(v)) {{
-        moved = false;
-        return;
-      }}
-      if (!moved) {{ ctx.moveTo(x(p.t), y(v)); moved = true; }}
-      else ctx.lineTo(x(p.t), y(v));
-    }});
-    ctx.stroke();
-  }}
-  line("buy", "#1464d2");
-  line("sell", "#c2410c");
-  const zeroY = y(0);
-  if (zeroY >= top && zeroY <= top + ch) {{
-    ctx.strokeStyle = "#101828";
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath(); ctx.moveTo(left, zeroY); ctx.lineTo(w - right, zeroY); ctx.stroke();
-    ctx.setLineDash([]);
-  }}
-}}
 connect();
-loadHistory();
-setInterval(loadHistory, 300_000);
-window.addEventListener("resize", () => {{ draw(); drawHistory(); }});
+window.addEventListener("resize", draw);
 </script>
 </body>
 </html>"""
