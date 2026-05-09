@@ -10,6 +10,7 @@
     "hmac",
     "httpx",
     "jsonable",
+    "ohlc",
     "pydantic",
     "veryshj",
     "vwap"
