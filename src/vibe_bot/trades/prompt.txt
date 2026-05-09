@@ -280,3 +280,286 @@ Do I need to change it to 0.0.0.0?
 
 
 Now I can access web server but it can not connect to websocket at 8766, anything I need to do more?
+
+
+Now change the webhost default 
+
+
+
+Now change the web-host default to 0.0.0.0
+
+
+Set timezone in dockerfile to JST
+
+
+for logging, use JST instead of UTC
+
+
+  Write a random bitbank private api call for testing in /scratch.py
+
+
+
+Add same random bitflyer privete api call for testing in /scratch.py
+
+
+
+On my ubuntu server, I got auth error for bitbank:
+AuthError: bitbank API error code=20001: API authorization failure
+
+
+
+Add cancel action in bot actions
+
+
+In web action history, add a vertical scroll so that only show max 15 rows 
+
+
+In the web app chart, if the active maker is disconnected, 
+will there be an strange line connecting end of the previous active maker and the start of new active maker? If so, I do not want that line, just, leave the region blank
+
+
+
+Add a maker filled event
+
+I mean also in the bot actions
+
+
+
+Make current description of action to be comment, instead, change the description to the information 
+which logger event logged, so that I can check them directly from the web app
+
+
+
+In web app, remove tooltip for bot action because now I can check the description in the action history
+
+
+
+Currently if the total position is not zero, it will raise an error like:
+
+position initialization failed: bitbank and bitFlyer positions disagree: bitbank=0.00100000, bitflyer=0, mismatch=0.00100000, tolerance=0.0001
+
+But if hedge is disabled, this check should be relaxed,
+update it
+
+
+
+
+Now the comment in bot actions is still coded and displayed on web app,
+I want to remove the comment but just leave them as python comment (starts from #),
+They do not need to displayed on the web app.
+Also the description of bot actions is in a dictionary style, make it more readable form
+
+
+
+Currently the trade logic only place order with order_size?
+for example if order_size is 0.001 and somehow the filled size is 0.0001, 
+  so the position becomes 0.0001, the minimal order size is 0.0001, 
+  so it can place 0.0009 order to fill the rest, but currently it does not have this logic, 
+  it just place 0.0001 order to close the position.
+
+Investigate if this is true, if so, fix it
+
+
+Have you considered minimal order size?
+
+
+Link the flowchart to readme.md
+
+
+How max position paramter affect the logic?
+
+
+
+
+
+Now I want to implement a multi stage logic to cover wider range of price
+
+add a new parameter like size_per_stage (you should think of a better name), and stage_num
+say size_per_stage = 1
+then 
+- for position in (-1, 1),
+  - it has threshold+offset for open_long and offset for close_long
+  - it has -threshold+offset for open_short and offset for close_short
+- for position in [1, 2),
+  - it has 2*threshold+offset for open_another_long and threshold+offset for close_this_another_long
+- for position in (-2, -1],
+  - it has -2*threshold+offset for open_another_short and -threshold+offset for close_this_another_short
+
+and so on.
+
+What do you think about this logic? any advice?
+
+
+Good, do as you say
+
+
+
+Does the trigger price of open and close for current stage will show in current web app?
+
+
+Even there is no active maker, can I check the trigger price?
+
+
+Yes do this
+
+
+Add command to git pull on remote server in readme.md
+The command is:
+```
+gcloud compute ssh veryshj@vibe-bot
+cd vibe_bot
+git pull
+```
+Combine 3 lines into one line using gcloud compute ssh command
+
+
+
+How to enable color for this command?
+
+
+I think the color is missing through ssh. the git in remote server has color
+
+
+
+how about TERM=xterm-256color in front of gcloud compute ssh?
+
+
+
+gcloud compute ssh veryshj123@vibe-bot -- -t 'cd vibe_bot && git pull'
+works.
+what is -- -t
+
+
+
+Sometimes In web app chart, I see the active maker trigger price (say for open short) is above the sell price, (usually it equals to sell price), is that normal, what is the reason for this?
+
+
+I mean the maker sell margin short effective spread, what is this? and why it sometimes is above the sell price?
+
+Then what is the idle condition?
+
+
+For the previous case, if the 
+
+
+
+In _build_target method, it has
+
+        if action == "SELL" and price <= quote.bitbank_bid:
+            return None
+
+However since
+
+            passive = quote.bitbank_bid + self.config.tick_size
+            profitable = quote.bitflyer_ask_vwap + trigger
+            price = quantize_up(max(passive, profitable), self.config.tick_size)
+
+is that possible for price to meet this condition?
+
+
+
+is that possible that the sell active maker placed in bitbank actually above the best_bid + tick_size?
+consider the choose_target logic
+
+
+then what is the condition that even the position is not full, still there is no active maker chance available?
+
+
+then what is the condition that there is no sell active maker chance available even if the position is max long?
+
+
+
+Now comes the problem, if the logic is that place sell maker only when  sell price > -2000, how is that possible the maker sell margin short effective spread > sell_price + tick_size?
+
+shouldn't it aways be sell_price + tick_size?
+
+I got confused, to make the logic more clear, I would like to update the concept of buy price and sell price to be:
+- If the maker with highest fill probability (which is the best_bid + tick_size for sell for example) is placed and full filled, the maker price - bitflyer buy price (hedge order) will be the sell price.
+
+In this way, the buy price and trigger price should be always the same, since the active maker 
+
+
+
+I see, since the strategy in bitbank is always place a maker order, then the vwap in bitbank is irrelevant, remove all bitbank vwap related logic in the code, instead use the most aggresive maker price for calculation of buy/sell price.
+Do you agree?
+
+
+
+Why BUY maker is not valid, even if bitbank_ask - tick_size = bitbank_bid (which is very common),
+The BUY maker at bitbank_bid is a totally good maker.
+Can you explain why?
+
+
+
+Do the change that remove the bitbank vwap logic
+
+
+
+Can you check this time, will the 
+
+
+
+
+
+Now can you double check if 
+margin short effective spread > sell_price
+is possible?
+
+
+
+
+sometimes, like max position is 0.003 and current position is -0.002, 
+I see the web app shows: 
+- Short Open / Close: 4000/2000
+- Long Open / Close: -6000/--
+I understand short open/close, but why long open/close also shows value? I thought it should be -- since the position is short, there is no long position, so no long open/close action available, right? Can you check this?
+
+
+So the long_open_trigger and short_open_trigger is only calculated at the frontend web?
+I think it is better calculated in the main trade logic, and actually used for calculation.
+How do you think?
+
+
+
+current web app shows next stage, I do not want to see this information because it really does not tell anything, current stage is enough. what do you think?
+
+
+
+Remove next stage
+
+
+
+How is the value of Realized PnL JPY in web app calculated?
+
+
+
+Add bitbank PNL jpy, is it possible to get this value from order_info?
+notice the pnl is not calculatable for open action, record the cost for open position, when partially close opened position, calculate the profit.
+How do you think
+
+
+For example original position is 0.3, then partially close the position to 0.1, then open another position to 0.2, then close to 0.1, is now pnl calculable?
+
+
+Is bitbank_open_cost_jpy show
+
+
+When I kill the trade process, the active maker remains on the exchange,
+Is it possible to close the maker whenever the process is killed?
+
+
+
+I see cancel_active_maker in finally block before the change,
+Is the original code also handled the process shutdown case?
+
+
+
+I want to plot the historical (like recent 3 - 5 days) change of this buy, sell price,
+Can you implement this feature using bitbank and bitflyer candlestick API.
+where do you think is the best place to implement this feature?
+
+
+
+I do not want the history chart feature be integrated to current arbitrage logic,
+Remove this feature in the arbitrage, but keep _history feature as a standalone feature.
+Add a main function to _history file and I can run the file and it plot a chart using plotly (open a browser window and show the chart)
