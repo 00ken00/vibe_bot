@@ -563,3 +563,7 @@ where do you think is the best place to implement this feature?
 I do not want the history chart feature be integrated to current arbitrage logic,
 Remove this feature in the arbitrage, but keep _history feature as a standalone feature.
 Add a main function to _history file and I can run the file and it plot a chart using plotly (open a browser window and show the chart)
+
+
+
+I got the data from 21:00 to 9:00 every day is missing in the chart, can you check for this?

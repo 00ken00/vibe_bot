@@ -264,8 +264,17 @@ async def _fetch_bitflyer_closes(
         if oldest is None or oldest <= start_ms or oldest == last_oldest:
             break
         last_oldest = oldest
-        before = oldest - candle_minutes * 60 * 1000
+        before = _previous_bitflyer_lightchart_boundary_ms(oldest)
     return closes
+
+
+def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
+    timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=JST)
+    boundary_hour = 21 if timestamp.hour >= 21 else 9
+    boundary = timestamp.replace(
+        hour=boundary_hour, minute=0, second=0, microsecond=0
+    )
+    return int(boundary.timestamp() * 1000)
 
 
 if __name__ == "__main__":
