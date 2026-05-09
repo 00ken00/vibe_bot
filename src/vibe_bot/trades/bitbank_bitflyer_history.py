@@ -8,6 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from vibe_bot.bitbank import PublicClient as BitbankPublicClient
 from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
@@ -98,8 +99,17 @@ def build_figure(
     buy = [float(point.buy_price) for point in points]
     sell = [float(point.sell_price) for point in points]
     close = [float(point.close_spread) for point in points]
+    bitbank_close = [float(point.bitbank_close) for point in points]
+    bitflyer_close = [float(point.bitflyer_close) for point in points]
 
-    fig = go.Figure()
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.58, 0.42],
+        subplot_titles=("Approx BUY / SELL Spread", "Candle Close Prices"),
+    )
     fig.add_trace(
         go.Scatter(
             x=x,
@@ -107,7 +117,9 @@ def build_figure(
             mode="lines",
             name="approx BUY price",
             line={"color": "#1464d2", "width": 1.6},
-        )
+        ),
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -116,7 +128,9 @@ def build_figure(
             mode="lines",
             name="approx SELL price",
             line={"color": "#c2410c", "width": 1.6},
-        )
+        ),
+        row=1,
+        col=1,
     )
     fig.add_trace(
         go.Scatter(
@@ -126,21 +140,54 @@ def build_figure(
             name="close spread",
             line={"color": "#667085", "width": 1, "dash": "dot"},
             visible="legendonly",
-        )
+        ),
+        row=1,
+        col=1,
     )
-    fig.add_hline(y=0, line_dash="dash", line_color="#101828", opacity=0.45)
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=bitbank_close,
+            mode="lines",
+            name="bitbank close",
+            line={"color": "#0f9f6e", "width": 1.4},
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=bitflyer_close,
+            mode="lines",
+            name="bitFlyer close",
+            line={"color": "#7c3aed", "width": 1.4},
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="#101828",
+        opacity=0.45,
+        row=1,
+        col=1,
+    )
     fig.update_layout(
         title=(
             "bitbank / bitFlyer Historical Spread "
             f"({config.candle_minutes}min candles, {config.days}d)"
         ),
-        xaxis_title="Time (JST)",
-        yaxis_title="Spread JPY",
         hovermode="x unified",
         template="plotly_white",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
-        margin={"l": 64, "r": 24, "t": 78, "b": 52},
+        margin={"l": 64, "r": 24, "t": 90, "b": 64},
+        height=850,
     )
+    fig.update_yaxes(title_text="Spread JPY", row=1, col=1)
+    fig.update_yaxes(title_text="Close JPY", row=2, col=1)
+    fig.update_xaxes(title_text="Time (JST)", row=2, col=1)
     fig.add_annotation(
         text=(
             "Approximation from candle closes. Historical candles do not include "
