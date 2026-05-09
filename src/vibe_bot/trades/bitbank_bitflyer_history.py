@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -12,7 +11,6 @@ import plotly.graph_objects as go
 
 from vibe_bot.bitbank import PublicClient as BitbankPublicClient
 from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
-from vibe_bot.trades.bitbank_bitflyer_utils import decimal_arg
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -158,57 +156,48 @@ def build_figure(
     return fig
 
 
-async def _run(config: HistoryConfig, output_html: Path | None) -> None:
+async def _run(config: HistoryConfig, output_html: Path | str | None) -> go.Figure:
     points = await fetch_historical_spreads(config)
     if not points:
         raise RuntimeError("no matching historical candle points were returned")
     fig = build_figure(points, config)
     if output_html is not None:
-        fig.write_html(output_html, include_plotlyjs="cdn")
-        print(f"wrote: {output_html}")
+        output_path = Path(output_html)
+        fig.write_html(output_path, include_plotlyjs="cdn")
+        print(f"wrote: {output_path}")
     fig.show(renderer="browser")
+    return fig
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Plot candle-based historical bitbank/bitFlyer spread estimates."
+def main(
+    bitbank_pair: str = "btc_jpy",
+    bitflyer_product_code: str = "FX_BTC_JPY",
+    days: int = 5,
+    candle_minutes: int = 5,
+    tick_size: Decimal | str = Decimal("1"),
+    output_html: Path | str | None = None,
+) -> go.Figure:
+    """Fetch historical candles and open a Plotly spread chart.
+
+    IPython usage:
+        fig = main(days=5, candle_minutes=5)
+        fig = main(days=3, candle_minutes=15, output_html="/tmp/spread.html")
+    """
+    if days <= 0:
+        raise ValueError("days must be positive")
+    if candle_minutes not in (1, 5, 15, 30):
+        raise ValueError("candle_minutes must be one of 1, 5, 15, 30")
+    tick = Decimal(str(tick_size))
+    if tick <= 0:
+        raise ValueError("tick_size must be positive")
+    config = HistoryConfig(
+        bitbank_pair=bitbank_pair,
+        bitflyer_product_code=bitflyer_product_code,
+        days=days,
+        candle_minutes=candle_minutes,
+        tick_size=tick,
     )
-    parser.add_argument("--bitbank-pair", default="btc_jpy")
-    parser.add_argument("--bitflyer-product-code", default="FX_BTC_JPY")
-    parser.add_argument("--days", type=int, default=5)
-    parser.add_argument(
-        "--candle-minutes",
-        type=int,
-        default=5,
-        choices=(1, 5, 15, 30),
-    )
-    parser.add_argument("--tick-size", type=decimal_arg, default=Decimal("1"))
-    parser.add_argument(
-        "--output-html",
-        type=Path,
-        default=None,
-        help="optional path to save the Plotly HTML file before opening it",
-    )
-    return parser
-
-
-def config_from_args(args: argparse.Namespace) -> HistoryConfig:
-    if args.days <= 0:
-        raise SystemExit("--days must be positive")
-    if args.tick_size <= 0:
-        raise SystemExit("--tick-size must be positive")
-    return HistoryConfig(
-        bitbank_pair=args.bitbank_pair,
-        bitflyer_product_code=args.bitflyer_product_code,
-        days=args.days,
-        candle_minutes=args.candle_minutes,
-        tick_size=args.tick_size,
-    )
-
-
-def main() -> None:
-    args = build_parser().parse_args()
-    asyncio.run(_run(config_from_args(args), args.output_html))
+    return asyncio.run(_run(config, output_html))
 
 
 async def _fetch_bitbank_closes(
@@ -278,4 +267,11 @@ def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
 
 
 if __name__ == "__main__":
-    main()
+    main(
+        bitbank_pair="btc_jpy",
+        bitflyer_product_code="FX_BTC_JPY",
+        days=5,
+        candle_minutes=5,
+        tick_size="1",
+        output_html=None,
+    )
