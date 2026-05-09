@@ -563,6 +563,7 @@ class ArbitrageTrader:
         self.logger = logger
         self._bb_private: BitbankPrivateClient | None = None
         self._bf_private: BitflyerPrivateClient | None = None
+        self._shutdown_started = False
 
     async def run(self, stop: asyncio.Event) -> None:
         if not self.config.dry_run:
@@ -592,11 +593,27 @@ class ArbitrageTrader:
                     LOGGER.exception("trader tick failed")
                 await asyncio.sleep(self.config.maker_update_interval)
         finally:
-            await self._cancel_active_maker("shutdown")
+            await self.shutdown("shutdown")
+
+    async def shutdown(self, reason: str) -> None:
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        self.logger.event("trader_shutdown_started", reason=reason)
+        try:
+            await self._cancel_active_maker(reason)
+        except Exception as exc:
+            self.state.last_error = f"shutdown maker cancel failed: {exc}"
+            self.logger.event("trader_shutdown_cancel_failed", reason=reason, error=str(exc))
+            LOGGER.exception("shutdown maker cancel failed")
+        finally:
             if self._bb_private is not None:
                 await self._bb_private.aclose()
+                self._bb_private = None
             if self._bf_private is not None:
                 await self._bf_private.aclose()
+                self._bf_private = None
+            self.logger.event("trader_shutdown_finished", reason=reason)
 
     async def _tick(self) -> None:
         quote = self.state.quote
@@ -1223,6 +1240,7 @@ async def run_bot(config: BotConfig) -> None:
         await stop.wait()
     finally:
         stop.set()
+        await trader.shutdown("process_shutdown")
         await asyncio.gather(*tasks, return_exceptions=True)
         web.stop_http()
         logger.event("bot_stopped")
