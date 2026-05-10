@@ -8,12 +8,12 @@ from decimal import Decimal
 
 from vibe_bot.bitbank import PublicWebSocket as BitbankPublicWebSocket
 from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
-from vibe_bot.trades.bitbank_bitflyer_config import BotConfig
-from vibe_bot.trades.bitbank_bitflyer_logging import TradeLogger
-from vibe_bot.trades.bitbank_bitflyer_models import BotState
-from vibe_bot.trades.bitbank_bitflyer_models import Quote
+from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
+from vibe_bot.trades.bitbank_bitflyer.logging import TradeLogger
+from vibe_bot.trades.bitbank_bitflyer.models import BotState
+from vibe_bot.trades.bitbank_bitflyer.models import Quote
 
-LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_quotes")
+LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.quotes")
 
 BookLevel = Mapping[str, object] | Sequence[object]
 

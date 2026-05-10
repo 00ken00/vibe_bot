@@ -12,11 +12,11 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 
 if TYPE_CHECKING:
-    from vibe_bot.trades.bitbank_bitflyer_config import BotConfig
-    from vibe_bot.trades.bitbank_bitflyer_logging import Broadcaster
-    from vibe_bot.trades.bitbank_bitflyer_models import BotState
+    from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
+    from vibe_bot.trades.bitbank_bitflyer.logging import Broadcaster
+    from vibe_bot.trades.bitbank_bitflyer.models import BotState
 
-LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer_web")
+LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.web")
 
 
 class WebApp:

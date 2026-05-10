@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from vibe_bot.trades.bitbank_bitflyer_utils import decimal_arg
+from vibe_bot.trades.bitbank_bitflyer.utils import decimal_arg
 
 
 @dataclass(frozen=True)

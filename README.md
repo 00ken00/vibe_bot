@@ -7,17 +7,19 @@ Async exchange clients and trading scripts.
 The arbitrage bot lives at:
 
 ```text
-src/trades/bitbank_bitflyer_arbitrage.py
+src/vibe_bot/trades/bitbank_bitflyer/
 ```
 
-Trade logic diagrams are in [src/vibe_bot/trades/flowchart.md](src/vibe_bot/trades/flowchart.md).
+The command wrapper is `src/trades/bitbank_bitflyer_arbitrage.py`, and the main implementation is `vibe_bot.trades.bitbank_bitflyer.arbitrage`.
+
+Trade logic diagrams are in [src/vibe_bot/trades/bitbank_bitflyer/flowchart.md](src/vibe_bot/trades/bitbank_bitflyer/flowchart.md).
 
 Dry-run is the default mode. It streams public order books over websocket, estimates the bitFlyer hedge VWAP for the configured order size, computes BUY/SELL spreads from bitbank aggressive maker prices, chooses the bitbank maker quote it would maintain, updates the web monitor, and writes logs. It does not place orders.
 
 Run dry-run:
 
 ```bash
-python3 src/trades/bitbank_bitflyer_arbitrage.py \
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage \
   --threshold-jpy 1000 \
   --threshold-offset-jpy 0 \
   --order-size 0.001 \
@@ -39,7 +41,7 @@ On a remote server, use the server hostname or IP address instead.
 Override parameters by changing the CLI values:
 
 ```bash
-python3 src/trades/bitbank_bitflyer_arbitrage.py \
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage \
   --threshold-jpy 1500 \
   --threshold-offset-jpy 200 \
   --order-size 0.0005 \
@@ -50,19 +52,19 @@ python3 src/trades/bitbank_bitflyer_arbitrage.py \
 Live trading is explicit and will place real bitbank maker orders and bitFlyer hedge orders:
 
 ```bash
-python3 src/trades/bitbank_bitflyer_arbitrage.py --live
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage --live
 ```
 
 To place live bitbank maker orders without sending the bitFlyer hedge order:
 
 ```bash
-python3 src/trades/bitbank_bitflyer_arbitrage.py --live --disable-bitflyer-hedge
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage --live --disable-bitflyer-hedge
 ```
 
 Show all options:
 
 ```bash
-python3 src/trades/bitbank_bitflyer_arbitrage.py --help
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage --help
 ```
 
 ## Docker JupyterLab Environment
@@ -90,7 +92,7 @@ Inside JupyterLab terminal, run:
 
 ```bash
 git pull
-python3 src/trades/bitbank_bitflyer_arbitrage.py --help
+python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage --help
 ```
 
 Pull the latest code on the remote VM from your local shell:
