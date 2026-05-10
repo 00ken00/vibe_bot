@@ -5,6 +5,7 @@ import html
 import logging
 import threading
 import time
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
@@ -131,30 +132,7 @@ class WebApp:
         }
 
     def _parameters_html(self) -> str:
-        params: list[tuple[str, object]] = [
-            ("bitbank_pair", self.config.bitbank_pair),
-            ("bitflyer_product_code", self.config.bitflyer_product_code),
-            ("threshold_jpy", self.config.threshold_jpy),
-            ("threshold_offset_jpy", self.config.threshold_offset_jpy),
-            ("order_size", self.config.order_size),
-            ("stage_size", self.config.stage_size),
-            ("max_stages", self.config.max_stages),
-            ("max_position", self.config.max_position),
-            ("maker_update_interval", self.config.maker_update_interval),
-            ("monitor_update_interval", self.config.monitor_update_interval),
-            ("tick_size", self.config.tick_size),
-            ("min_order_size", self.config.min_order_size),
-            ("bitflyer_min_order_size", self.config.bitflyer_min_order_size),
-            ("bitflyer_maintenance_guard_enabled", self.config.bitflyer_maintenance_guard_enabled),
-            ("bitflyer_maintenance_start_jst", self.config.bitflyer_maintenance_start_jst),
-            ("bitflyer_maintenance_end_jst", self.config.bitflyer_maintenance_end_jst),
-            ("dry_run", self.config.dry_run),
-            ("hedge_enabled", self.config.hedge_enabled),
-            ("web_host", self.config.web_host),
-            ("web_port", self.config.web_port),
-            ("ws_port", self.config.ws_port),
-            ("log_dir", self.config.log_dir),
-        ]
+        params = self._config_display_items()
         rows = []
         for name, value in params:
             safe_name = html.escape(name)
@@ -163,6 +141,13 @@ class WebApp:
                 f'<div class="param"><span>{safe_name}</span><strong>{safe_value}</strong></div>'
             )
         return "\n".join(rows)
+
+    def _config_display_items(self) -> list[tuple[str, object]]:
+        params = list(asdict(self.config).items())
+        for name, attr in vars(type(self.config)).items():
+            if isinstance(attr, property):
+                params.append((name, getattr(self.config, name)))
+        return params
 
     def _html(self) -> str:
         parameters_html = self._parameters_html()
