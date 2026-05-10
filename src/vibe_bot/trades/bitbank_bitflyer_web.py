@@ -93,6 +93,9 @@ class WebApp:
             "threshold_jpy": self.config.threshold_jpy,
             "threshold_offset_jpy": self.config.threshold_offset_jpy,
             "position": self.state.position,
+            "bitbank_position": self.state.bitbank_position,
+            "bitflyer_position": self.state.bitflyer_position,
+            "unhedged_position": self.state.unhedged_position,
             "realized_pnl_jpy": self.state.realized_pnl_jpy,
             "bitbank_realized_pnl_jpy": self.state.bitbank_realized_pnl_jpy,
             "bitbank_open_cost_jpy": self.state.bitbank_open_cost_jpy,
@@ -140,6 +143,7 @@ class WebApp:
             ("monitor_update_interval", self.config.monitor_update_interval),
             ("tick_size", self.config.tick_size),
             ("min_order_size", self.config.min_order_size),
+            ("bitflyer_min_order_size", self.config.bitflyer_min_order_size),
             ("dry_run", self.config.dry_run),
             ("hedge_enabled", self.config.hedge_enabled),
             ("web_host", self.config.web_host),
@@ -347,6 +351,8 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   <section class="table">
     <div class="metric"><div class="label">bitbank Top Bid / Ask</div><div id="bb" class="value">--</div></div>
     <div class="metric"><div class="label">bitbank Maker Buy / Sell</div><div id="bbMaker" class="value">--</div></div>
+    <div class="metric"><div class="label">bitbank / bitFlyer Pos</div><div id="exchangePositions" class="value">--</div></div>
+    <div class="metric"><div class="label">Unhedged BTC</div><div id="unhedgedPosition" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
@@ -454,6 +460,8 @@ function renderMetrics() {{
   setText("action", latest.last_action || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbMaker", `${{fmt.format(num(q.bitbank_buy_maker || 0))}} / ${{fmt.format(num(q.bitbank_sell_maker || 0))}}`);
+  setText("exchangePositions", `${{btcFmt.format(num(latest.bitbank_position || 0))}} / ${{btcFmt.format(num(latest.bitflyer_position || 0))}}`);
+  setText("unhedgedPosition", btcFmt.format(num(latest.unhedged_position || 0)));
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
   setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
   const s = latest.stage_status || {{}};

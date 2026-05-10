@@ -82,6 +82,7 @@ class BotConfig:
     monitor_update_interval: float = 1.0
     tick_size: Decimal = Decimal("1")
     min_order_size: Decimal = Decimal("0.0001")
+    bitflyer_min_order_size: Decimal = Decimal("0.001")
     dry_run: bool = True
     hedge_enabled: bool = True
     web_host: str = "0.0.0.0"
@@ -195,6 +196,8 @@ class BotState:
 
     quote: Quote = field(default_factory=Quote)
     position: Decimal = Decimal("0")
+    bitbank_position: Decimal = Decimal("0")
+    bitflyer_position: Decimal = Decimal("0")
     realized_pnl_jpy: Decimal = Decimal("0")
     bitbank_realized_pnl_jpy: Decimal = Decimal("0")
     bitbank_open_cost_jpy: Decimal = Decimal("0")
@@ -207,6 +210,10 @@ class BotState:
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
+
+    @property
+    def unhedged_position(self) -> Decimal:
+        return self.bitbank_position - self.bitflyer_position
 
     def set_action(self, action: BotAction, description: str | None = None) -> None:
         action_description = description or ""
@@ -287,6 +294,9 @@ class TradeLogger:
             "slippage_jpy",
             "cashflow_jpy",
             "position",
+            "bitbank_position",
+            "bitflyer_position",
+            "unhedged_position",
             "realized_pnl_jpy",
             "bitbank_fill_pnl_jpy",
             "bitbank_realized_pnl_jpy",
@@ -622,6 +632,22 @@ class ArbitrageTrader:
             return
         self.state.stage_status = self._stage_status()
         await self._refresh_active_maker()
+        if (
+            not self.config.dry_run
+            and self.config.hedge_enabled
+            and abs(self.state.unhedged_position) >= self.config.bitflyer_min_order_size
+        ):
+            await self._repair_unhedged_position()
+            if abs(self.state.unhedged_position) >= self.config.bitflyer_min_order_size:
+                self.state.set_action(
+                    BotAction.IDLE,
+                    event_summary(
+                        "unhedged_position_blocks_maker",
+                        unhedged_position=self.state.unhedged_position,
+                    ),
+                )
+                await self._cancel_active_maker("unhedged_position")
+                return
         target = self._choose_target()
         if target is None:
             self.state.set_action(BotAction.IDLE, "target=None")
@@ -835,7 +861,7 @@ class ArbitrageTrader:
         bitbank_position, bitbank_components = await self._bitbank_strategy_position()
         bitflyer_position, bitflyer_components = await self._bitflyer_strategy_position()
         mismatch = abs(bitbank_position - bitflyer_position)
-        tolerance = self.config.min_order_size
+        tolerance = self.config.bitflyer_min_order_size
         payload = {
             "bitbank_position": bitbank_position,
             "bitflyer_position": bitflyer_position,
@@ -852,7 +878,9 @@ class ArbitrageTrader:
                 f"bitbank={bitbank_position}, bitflyer={bitflyer_position}, "
                 f"mismatch={mismatch}, tolerance={tolerance}"
             )
-        self.state.position = bitbank_position
+        self.state.bitbank_position = bitbank_position
+        self.state.bitflyer_position = bitflyer_position
+        self.state.position = self.state.bitbank_position
         if bitbank_position == 0:
             self.state.bitbank_cost_basis_ready = True
             self.state.bitbank_open_cost_jpy = Decimal("0")
@@ -866,7 +894,12 @@ class ArbitrageTrader:
             )
         if not self.config.hedge_enabled and mismatch > tolerance:
             self.logger.event("position_initialization_mismatch_ignored", **payload)
-        self.logger.event("position_initialized", **payload, position=self.state.position)
+        self.logger.event(
+            "position_initialized",
+            **payload,
+            position=self.state.position,
+            unhedged_position=self.state.unhedged_position,
+        )
 
     async def _bitbank_strategy_position(
         self,
@@ -1125,41 +1158,132 @@ class ArbitrageTrader:
     async def _hedge_fill(
         self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal
     ) -> None:
-        bitflyer_side = "SELL" if maker.action == "BUY" else "BUY"
-        actual_hedge_price = maker.expected_hedge_price
+        bitbank_fill_pnl = self._apply_bitbank_pnl(maker, amount, bitbank_fill_price)
+        if maker.action == "BUY":
+            self.state.bitbank_position += amount
+        else:
+            self.state.bitbank_position -= amount
+        self.state.position = self.state.bitbank_position
+        self.logger.event(
+            "bitbank_position_updated",
+            maker=asdict(maker),
+            fill_amount=amount,
+            bitbank_position=self.state.bitbank_position,
+            bitflyer_position=self.state.bitflyer_position,
+            unhedged_position=self.state.unhedged_position,
+        )
+
+        hedge_amount = abs(self.state.unhedged_position)
+        bitflyer_side = (
+            "SELL"
+            if self.state.unhedged_position > 0
+            else "BUY"
+            if self.state.unhedged_position < 0
+            else None
+        )
+        expected_hedge_price = (
+            maker.expected_hedge_price if hedge_amount > 0 else Decimal("0")
+        )
+        actual_hedge_price: Decimal | None = None
+        hedge_executed_amount = Decimal("0")
         hedge_executed = False
-        if not self.config.dry_run and self.config.hedge_enabled:
+        if (
+            not self.config.dry_run
+            and self.config.hedge_enabled
+            and hedge_amount >= self.config.bitflyer_min_order_size
+        ):
             assert self._bf_private is not None
+            assert bitflyer_side is not None
+            self.logger.event(
+                "bitflyer_hedge_attempt",
+                side=bitflyer_side,
+                amount=hedge_amount,
+                bitbank_position=self.state.bitbank_position,
+                bitflyer_position=self.state.bitflyer_position,
+                unhedged_position=self.state.unhedged_position,
+            )
             ack = await self._bf_private.send_child_order(
                 product_code=self.config.bitflyer_product_code,
                 child_order_type="MARKET",
                 side=bitflyer_side,
-                size=amount,
+                size=hedge_amount,
                 time_in_force="IOC",
             )
-            actual_hedge_price = await self._execution_average(
-                ack.child_order_acceptance_id, fallback=maker.expected_hedge_price
+            actual_hedge_price, hedge_executed_amount = await self._execution_summary(
+                ack.child_order_acceptance_id, fallback=expected_hedge_price
             )
-            hedge_executed = True
+            if hedge_executed_amount > 0:
+                if bitflyer_side == "SELL":
+                    self.state.bitflyer_position += hedge_executed_amount
+                else:
+                    self.state.bitflyer_position -= hedge_executed_amount
+                hedge_executed = True
+                self.logger.event(
+                    "bitflyer_position_updated",
+                    side=bitflyer_side,
+                    executed_amount=hedge_executed_amount,
+                    average_price=actual_hedge_price,
+                    bitbank_position=self.state.bitbank_position,
+                    bitflyer_position=self.state.bitflyer_position,
+                    unhedged_position=self.state.unhedged_position,
+                )
+            else:
+                self.logger.event(
+                    "bitflyer_hedge_unfilled",
+                    side=bitflyer_side,
+                    amount=hedge_amount,
+                    bitbank_position=self.state.bitbank_position,
+                    bitflyer_position=self.state.bitflyer_position,
+                    unhedged_position=self.state.unhedged_position,
+                )
+        elif self.config.hedge_enabled and hedge_amount > 0:
+            self.logger.event(
+                "bitflyer_hedge_deferred",
+                reason=(
+                    "dry_run"
+                    if self.config.dry_run
+                    else "below_bitflyer_min_order_size"
+                ),
+                side=bitflyer_side,
+                amount=hedge_amount,
+                bitflyer_min_order_size=self.config.bitflyer_min_order_size,
+                bitbank_position=self.state.bitbank_position,
+                bitflyer_position=self.state.bitflyer_position,
+                unhedged_position=self.state.unhedged_position,
+            )
         elif not self.config.dry_run:
             self.logger.event(
                 "bitflyer_hedge_skipped",
                 reason="hedge_disabled",
                 maker=asdict(maker),
                 bitflyer_side=bitflyer_side,
-                amount=amount,
-                expected_hedge_price=maker.expected_hedge_price,
+                amount=hedge_amount,
+                expected_hedge_price=expected_hedge_price,
             )
 
-        bitbank_fill_pnl = self._apply_bitbank_pnl(maker, amount, bitbank_fill_price)
-        if maker.action == "BUY":
-            cashflow = (actual_hedge_price - bitbank_fill_price) * amount
-            self.state.position += amount
-            slippage = maker.expected_hedge_price - actual_hedge_price
+        if (
+            hedge_executed
+            and actual_hedge_price is not None
+            and hedge_executed_amount == amount
+        ):
+            if bitflyer_side == "SELL":
+                cashflow = (actual_hedge_price - bitbank_fill_price) * hedge_executed_amount
+                slippage = expected_hedge_price - actual_hedge_price
+            else:
+                cashflow = (bitbank_fill_price - actual_hedge_price) * hedge_executed_amount
+                slippage = actual_hedge_price - expected_hedge_price
         else:
-            cashflow = (bitbank_fill_price - actual_hedge_price) * amount
-            self.state.position -= amount
-            slippage = actual_hedge_price - maker.expected_hedge_price
+            cashflow = Decimal("0")
+            slippage = None
+            if hedge_executed and actual_hedge_price is not None:
+                self.logger.event(
+                    "combined_pnl_skipped",
+                    reason="hedge_size_differs_from_current_bitbank_fill",
+                    bitbank_fill_amount=amount,
+                    hedge_executed_amount=hedge_executed_amount,
+                    bitbank_fill_price=bitbank_fill_price,
+                    hedge_average_price=actual_hedge_price,
+                )
 
         self.state.realized_pnl_jpy += cashflow
         self.state.filled_base += amount
@@ -1172,11 +1296,14 @@ class ArbitrageTrader:
             bitbank_price=bitbank_fill_price,
             bitbank_amount=amount,
             bitflyer_side=bitflyer_side,
-            bitflyer_expected_price=maker.expected_hedge_price,
+            bitflyer_expected_price=expected_hedge_price,
             bitflyer_average_price=actual_hedge_price,
             slippage_jpy=slippage,
             cashflow_jpy=cashflow,
             position=self.state.position,
+            bitbank_position=self.state.bitbank_position,
+            bitflyer_position=self.state.bitflyer_position,
+            unhedged_position=self.state.unhedged_position,
             realized_pnl_jpy=self.state.realized_pnl_jpy,
             bitbank_fill_pnl_jpy=bitbank_fill_pnl,
             bitbank_realized_pnl_jpy=self.state.bitbank_realized_pnl_jpy,
@@ -1187,9 +1314,67 @@ class ArbitrageTrader:
             hedge_executed=hedge_executed,
         )
 
-    async def _execution_average(
+    async def _repair_unhedged_position(self) -> None:
+        quote = self.state.quote
+        assert quote.ready
+        hedge_amount = abs(self.state.unhedged_position)
+        if hedge_amount < self.config.bitflyer_min_order_size:
+            return
+        if self.state.unhedged_position > 0:
+            side = "SELL"
+            expected_price = quote.bitflyer_bid_vwap
+        else:
+            side = "BUY"
+            expected_price = quote.bitflyer_ask_vwap
+        assert expected_price is not None
+        self.logger.event(
+            "bitflyer_hedge_repair_attempt",
+            side=side,
+            amount=hedge_amount,
+            expected_price=expected_price,
+            bitbank_position=self.state.bitbank_position,
+            bitflyer_position=self.state.bitflyer_position,
+            unhedged_position=self.state.unhedged_position,
+        )
+        assert self._bf_private is not None
+        ack = await self._bf_private.send_child_order(
+            product_code=self.config.bitflyer_product_code,
+            child_order_type="MARKET",
+            side=side,
+            size=hedge_amount,
+            time_in_force="IOC",
+        )
+        average_price, executed_amount = await self._execution_summary(
+            ack.child_order_acceptance_id, fallback=expected_price
+        )
+        if executed_amount == 0:
+            self.logger.event(
+                "bitflyer_hedge_repair_unfilled",
+                side=side,
+                amount=hedge_amount,
+                bitbank_position=self.state.bitbank_position,
+                bitflyer_position=self.state.bitflyer_position,
+                unhedged_position=self.state.unhedged_position,
+            )
+            return
+        if side == "SELL":
+            self.state.bitflyer_position += executed_amount
+        else:
+            self.state.bitflyer_position -= executed_amount
+        self.logger.event(
+            "bitflyer_hedge_repair_executed",
+            side=side,
+            requested_amount=hedge_amount,
+            executed_amount=executed_amount,
+            average_price=average_price,
+            bitbank_position=self.state.bitbank_position,
+            bitflyer_position=self.state.bitflyer_position,
+            unhedged_position=self.state.unhedged_position,
+        )
+
+    async def _execution_summary(
         self, acceptance_id: str, fallback: Decimal
-    ) -> Decimal:
+    ) -> tuple[Decimal, Decimal]:
         assert self._bf_private is not None
         deadline = time.time() + 3.0
         while time.time() < deadline:
@@ -1201,9 +1386,9 @@ class ArbitrageTrader:
                 total_size = sum((e.size for e in executions), Decimal("0"))
                 if total_size > 0:
                     total_notional = sum((e.price * e.size for e in executions), Decimal("0"))
-                    return total_notional / total_size
+                    return total_notional / total_size, total_size
             await asyncio.sleep(0.25)
-        return fallback
+        return fallback, Decimal("0")
 
 
 async def run_bot(config: BotConfig) -> None:
@@ -1280,6 +1465,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tick-size", type=decimal_arg, default=Decimal("1"))
     parser.add_argument("--min-order-size", type=decimal_arg, default=Decimal("0.0001"))
+    parser.add_argument(
+        "--bitflyer-min-order-size",
+        type=decimal_arg,
+        default=Decimal("0.001"),
+        help="minimum executable bitFlyer hedge order size",
+    )
     parser.add_argument("--bitbank-pair", default="btc_jpy")
     parser.add_argument("--bitflyer-product-code", default="FX_BTC_JPY")
     parser.add_argument("--web-host", default="0.0.0.0")
@@ -1307,6 +1498,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--max-stages must be positive")
     if args.min_order_size <= 0:
         raise SystemExit("--min-order-size must be positive")
+    if args.bitflyer_min_order_size <= 0:
+        raise SystemExit("--bitflyer-min-order-size must be positive")
     if args.order_size < args.min_order_size:
         raise SystemExit("--order-size must be greater than or equal to --min-order-size")
     if args.stage_size < args.min_order_size:
@@ -1327,6 +1520,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         monitor_update_interval=args.monitor_update_interval,
         tick_size=args.tick_size,
         min_order_size=args.min_order_size,
+        bitflyer_min_order_size=args.bitflyer_min_order_size,
         dry_run=not args.live,
         hedge_enabled=not args.disable_bitflyer_hedge,
         web_host=args.web_host,
