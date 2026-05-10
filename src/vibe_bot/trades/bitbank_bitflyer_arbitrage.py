@@ -9,6 +9,7 @@ import signal
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from enum import Enum
 from pathlib import Path
@@ -25,6 +26,7 @@ from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_arg
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json
 from vibe_bot.trades.bitbank_bitflyer_utils import decimal_to_json_dict
+from vibe_bot.trades.bitbank_bitflyer_utils import JST
 from vibe_bot.trades.bitbank_bitflyer_utils import jst_iso
 from vibe_bot.trades.bitbank_bitflyer_utils import local_date_stamp
 from vibe_bot.trades.bitbank_bitflyer_utils import quantize_down
@@ -83,6 +85,9 @@ class BotConfig:
     tick_size: Decimal = Decimal("1")
     min_order_size: Decimal = Decimal("0.0001")
     bitflyer_min_order_size: Decimal = Decimal("0.001")
+    bitflyer_maintenance_guard_enabled: bool = True
+    bitflyer_maintenance_start_jst: str = "03:59:30"
+    bitflyer_maintenance_end_jst: str = "04:12:30"
     dry_run: bool = True
     hedge_enabled: bool = True
     web_host: str = "0.0.0.0"
@@ -445,6 +450,23 @@ class OrderBook:
             yield Decimal(str(price)), Decimal(str(size))
 
 
+def _parse_hhmmss(value: str) -> int:
+    parts = value.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(f"invalid JST time: {value}")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    second = int(parts[2]) if len(parts) == 3 else 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+        raise ValueError(f"invalid JST time: {value}")
+    return hour * 3600 + minute * 60 + second
+
+
+def _jst_time_seconds() -> int:
+    now = datetime.now(JST)
+    return now.hour * 3600 + now.minute * 60 + now.second
+
+
 class WebSocketQuoteFeed:
     """Maintains exchange order books from public websocket streams.
 
@@ -639,6 +661,17 @@ class ArbitrageTrader:
             return
         self.state.stage_status = self._stage_status()
         await self._refresh_active_maker()
+        if self._in_bitflyer_maintenance_guard():
+            self.state.set_action(
+                BotAction.IDLE,
+                event_summary(
+                    "bitflyer_maintenance_guard",
+                    start_jst=self.config.bitflyer_maintenance_start_jst,
+                    end_jst=self.config.bitflyer_maintenance_end_jst,
+                ),
+            )
+            await self._cancel_active_maker("bitflyer_maintenance_guard")
+            return
         if (
             not self.config.dry_run
             and self.config.hedge_enabled
@@ -667,6 +700,16 @@ class ArbitrageTrader:
             )
             return
         await self._replace_maker(target)
+
+    def _in_bitflyer_maintenance_guard(self) -> bool:
+        if not self.config.bitflyer_maintenance_guard_enabled:
+            return False
+        now_seconds = _jst_time_seconds()
+        start_seconds = _parse_hhmmss(self.config.bitflyer_maintenance_start_jst)
+        end_seconds = _parse_hhmmss(self.config.bitflyer_maintenance_end_jst)
+        if start_seconds <= end_seconds:
+            return start_seconds <= now_seconds < end_seconds
+        return now_seconds >= start_seconds or now_seconds < end_seconds
 
     def _choose_target(self) -> MakerOrder | None:
         quote = self.state.quote
@@ -1277,6 +1320,7 @@ class ArbitrageTrader:
             not self.config.dry_run
             and self.config.hedge_enabled
             and hedge_amount >= self.config.bitflyer_min_order_size
+            and not self._in_bitflyer_maintenance_guard()
         ):
             assert self._bf_private is not None
             assert bitflyer_side is not None
@@ -1331,6 +1375,8 @@ class ArbitrageTrader:
                 reason=(
                     "dry_run"
                     if self.config.dry_run
+                    else "bitflyer_maintenance_guard"
+                    if self._in_bitflyer_maintenance_guard()
                     else "below_bitflyer_min_order_size"
                 ),
                 side=bitflyer_side,
@@ -1569,6 +1615,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=Decimal("0.001"),
         help="minimum executable bitFlyer hedge order size",
     )
+    parser.add_argument(
+        "--disable-bitflyer-maintenance-guard",
+        action="store_true",
+        help="do not pause makers during the daily bitFlyer maintenance guard",
+    )
+    parser.add_argument(
+        "--bitflyer-maintenance-start-jst",
+        default="03:59:30",
+        help="JST HH:MM[:SS] start time for the bitFlyer maintenance guard",
+    )
+    parser.add_argument(
+        "--bitflyer-maintenance-end-jst",
+        default="04:12:30",
+        help="JST HH:MM[:SS] end time for the bitFlyer maintenance guard",
+    )
     parser.add_argument("--bitbank-pair", default="btc_jpy")
     parser.add_argument("--bitflyer-product-code", default="FX_BTC_JPY")
     parser.add_argument("--web-host", default="0.0.0.0")
@@ -1606,6 +1667,11 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--maker-update-interval must be positive")
     if args.monitor_update_interval <= 0:
         raise SystemExit("--monitor-update-interval must be positive")
+    try:
+        _parse_hhmmss(args.bitflyer_maintenance_start_jst)
+        _parse_hhmmss(args.bitflyer_maintenance_end_jst)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return BotConfig(
         bitbank_pair=args.bitbank_pair,
         bitflyer_product_code=args.bitflyer_product_code,
@@ -1619,6 +1685,9 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         tick_size=args.tick_size,
         min_order_size=args.min_order_size,
         bitflyer_min_order_size=args.bitflyer_min_order_size,
+        bitflyer_maintenance_guard_enabled=not args.disable_bitflyer_maintenance_guard,
+        bitflyer_maintenance_start_jst=args.bitflyer_maintenance_start_jst,
+        bitflyer_maintenance_end_jst=args.bitflyer_maintenance_end_jst,
         dry_run=not args.live,
         hedge_enabled=not args.disable_bitflyer_hedge,
         web_host=args.web_host,
