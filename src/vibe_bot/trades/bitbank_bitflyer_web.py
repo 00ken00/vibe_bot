@@ -100,6 +100,9 @@ class WebApp:
             "bitbank_realized_pnl_jpy": self.state.bitbank_realized_pnl_jpy,
             "bitbank_open_cost_jpy": self.state.bitbank_open_cost_jpy,
             "bitbank_cost_basis_ready": self.state.bitbank_cost_basis_ready,
+            "bitflyer_realized_pnl_jpy": self.state.bitflyer_realized_pnl_jpy,
+            "bitflyer_open_cost_jpy": self.state.bitflyer_open_cost_jpy,
+            "bitflyer_cost_basis_ready": self.state.bitflyer_cost_basis_ready,
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "last_action": self.state.last_action.value,
@@ -335,6 +338,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Position BTC</div><div id="position" class="value">--</div></div>
     <div class="metric"><div class="label">Realized PnL JPY</div><div id="pnl" class="value">--</div></div>
     <div class="metric"><div class="label">bitbank PnL JPY</div><div id="bitbankPnl" class="value">--</div></div>
+    <div class="metric"><div class="label">bitFlyer PnL JPY</div><div id="bitflyerPnl" class="value">--</div></div>
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
     <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
   </section>
@@ -456,6 +460,8 @@ function renderMetrics() {{
   setText("pnl", fmt.format(num(latest.realized_pnl_jpy || 0)));
   const bitbankPnl = fmt.format(num(latest.bitbank_realized_pnl_jpy || 0));
   setText("bitbankPnl", latest.bitbank_cost_basis_ready ? bitbankPnl : "cost basis unknown");
+  const bitflyerPnl = fmt.format(num(latest.bitflyer_realized_pnl_jpy || 0));
+  setText("bitflyerPnl", latest.bitflyer_cost_basis_ready ? bitflyerPnl : "cost basis unknown");
   setText("filled", btcFmt.format(num(latest.filled_base || 0)));
   setText("action", latest.last_action || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);

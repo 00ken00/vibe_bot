@@ -202,6 +202,9 @@ class BotState:
     bitbank_realized_pnl_jpy: Decimal = Decimal("0")
     bitbank_open_cost_jpy: Decimal = Decimal("0")
     bitbank_cost_basis_ready: bool = True
+    bitflyer_realized_pnl_jpy: Decimal = Decimal("0")
+    bitflyer_open_cost_jpy: Decimal = Decimal("0")
+    bitflyer_cost_basis_ready: bool = True
     filled_base: Decimal = Decimal("0")
     trade_count: int = 0
     active_maker: MakerOrder | None = None
@@ -302,6 +305,10 @@ class TradeLogger:
             "bitbank_realized_pnl_jpy",
             "bitbank_open_cost_jpy",
             "bitbank_cost_basis_ready",
+            "bitflyer_fill_pnl_jpy",
+            "bitflyer_realized_pnl_jpy",
+            "bitflyer_open_cost_jpy",
+            "bitflyer_cost_basis_ready",
             "dry_run",
             "hedge_enabled",
             "hedge_executed",
@@ -881,6 +888,17 @@ class ArbitrageTrader:
         self.state.bitbank_position = bitbank_position
         self.state.bitflyer_position = bitflyer_position
         self.state.position = self.state.bitbank_position
+        if bitflyer_position == 0:
+            self.state.bitflyer_cost_basis_ready = True
+            self.state.bitflyer_open_cost_jpy = Decimal("0")
+        else:
+            self.state.bitflyer_cost_basis_ready = False
+            self.state.bitflyer_open_cost_jpy = Decimal("0")
+            self.logger.event(
+                "bitflyer_pnl_cost_basis_unavailable",
+                reason="bot_started_with_nonzero_bitflyer_position",
+                position=bitflyer_position,
+            )
         if bitbank_position == 0:
             self.state.bitbank_cost_basis_ready = True
             self.state.bitbank_open_cost_jpy = Decimal("0")
@@ -1155,6 +1173,73 @@ class ArbitrageTrader:
         self.state.bitbank_realized_pnl_jpy += realized
         return realized
 
+    def _apply_bitflyer_pnl(
+        self, side: str, amount: Decimal, average_price: Decimal
+    ) -> Decimal:
+        previous_position = self.state.bitflyer_position
+        if previous_position == 0:
+            self.state.bitflyer_cost_basis_ready = True
+            self.state.bitflyer_open_cost_jpy = Decimal("0")
+
+        signed_amount = amount if side == "SELL" else -amount
+        if not self.state.bitflyer_cost_basis_ready:
+            closes_unknown_position = (
+                side == "BUY"
+                and previous_position > 0
+                and amount >= previous_position
+            ) or (
+                side == "SELL"
+                and previous_position < 0
+                and amount >= abs(previous_position)
+            )
+            self.logger.event(
+                "bitflyer_pnl_skipped",
+                reason="cost_basis_unavailable",
+                side=side,
+                previous_position=previous_position,
+                fill_amount=amount,
+                fill_price=average_price,
+            )
+            if closes_unknown_position:
+                leftover = amount - abs(previous_position)
+                self.state.bitflyer_cost_basis_ready = True
+                self.state.bitflyer_open_cost_jpy = average_price * leftover
+            return Decimal("0")
+
+        realized = Decimal("0")
+        remaining_open_cost = self.state.bitflyer_open_cost_jpy
+
+        if side == "SELL":
+            if previous_position < 0:
+                close_amount = min(amount, abs(previous_position))
+                average_entry = remaining_open_cost / abs(previous_position)
+                realized = (average_entry - average_price) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = average_price * leftover
+            else:
+                remaining_open_cost += average_price * amount
+        else:
+            if previous_position > 0:
+                close_amount = min(amount, previous_position)
+                average_entry = remaining_open_cost / previous_position
+                realized = (average_entry - average_price) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = average_price * leftover
+            else:
+                remaining_open_cost += average_price * amount
+
+        next_position = previous_position + signed_amount
+        if next_position == 0:
+            remaining_open_cost = Decimal("0")
+
+        self.state.bitflyer_open_cost_jpy = remaining_open_cost
+        self.state.bitflyer_realized_pnl_jpy += realized
+        return realized
+
     async def _hedge_fill(
         self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal
     ) -> None:
@@ -1187,6 +1272,7 @@ class ArbitrageTrader:
         actual_hedge_price: Decimal | None = None
         hedge_executed_amount = Decimal("0")
         hedge_executed = False
+        bitflyer_fill_pnl = Decimal("0")
         if (
             not self.config.dry_run
             and self.config.hedge_enabled
@@ -1213,6 +1299,9 @@ class ArbitrageTrader:
                 ack.child_order_acceptance_id, fallback=expected_hedge_price
             )
             if hedge_executed_amount > 0:
+                bitflyer_fill_pnl = self._apply_bitflyer_pnl(
+                    bitflyer_side, hedge_executed_amount, actual_hedge_price
+                )
                 if bitflyer_side == "SELL":
                     self.state.bitflyer_position += hedge_executed_amount
                 else:
@@ -1309,6 +1398,10 @@ class ArbitrageTrader:
             bitbank_realized_pnl_jpy=self.state.bitbank_realized_pnl_jpy,
             bitbank_open_cost_jpy=self.state.bitbank_open_cost_jpy,
             bitbank_cost_basis_ready=self.state.bitbank_cost_basis_ready,
+            bitflyer_fill_pnl_jpy=bitflyer_fill_pnl,
+            bitflyer_realized_pnl_jpy=self.state.bitflyer_realized_pnl_jpy,
+            bitflyer_open_cost_jpy=self.state.bitflyer_open_cost_jpy,
+            bitflyer_cost_basis_ready=self.state.bitflyer_cost_basis_ready,
             dry_run=self.config.dry_run,
             hedge_enabled=self.config.hedge_enabled,
             hedge_executed=hedge_executed,
@@ -1357,6 +1450,9 @@ class ArbitrageTrader:
                 unhedged_position=self.state.unhedged_position,
             )
             return
+        bitflyer_fill_pnl = self._apply_bitflyer_pnl(
+            side, executed_amount, average_price
+        )
         if side == "SELL":
             self.state.bitflyer_position += executed_amount
         else:
@@ -1367,6 +1463,8 @@ class ArbitrageTrader:
             requested_amount=hedge_amount,
             executed_amount=executed_amount,
             average_price=average_price,
+            bitflyer_fill_pnl_jpy=bitflyer_fill_pnl,
+            bitflyer_realized_pnl_jpy=self.state.bitflyer_realized_pnl_jpy,
             bitbank_position=self.state.bitbank_position,
             bitflyer_position=self.state.bitflyer_position,
             unhedged_position=self.state.unhedged_position,
