@@ -67,6 +67,41 @@ Show all options:
 python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage --help
 ```
 
+## bitFlyer-only experimental strategy
+
+The bitFlyer-only strategy uses the same spread and stage logic as the arbitrage bot, but it does not place bitbank maker orders. Instead, it watches bitbank public transactions and treats matching trades as synthetic bitbank maker fills, then places only the bitFlyer leg.
+
+Run dry-run:
+
+```bash
+python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only \
+  --threshold-jpy 2000 \
+  --threshold-offset-jpy 0 \
+  --order-size 0.01 \
+  --stage-size 0.01 \
+  --max-stages 5
+```
+
+Run live bitFlyer-only:
+
+```bash
+python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only --live
+```
+
+Logs are written to:
+
+```text
+logs/trades/bitbank_bitflyer_only
+```
+
+This is not true arbitrage. The script assumes the synthetic bitbank maker is first in queue at its price. If a bitbank transaction is smaller than the synthetic maker amount, the script treats it as a partial fill and only sends a bitFlyer order when the fill amount is at least `--bitflyer-min-order-size`.
+
+Show all options:
+
+```bash
+python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only --help
+```
+
 ## Docker JupyterLab Environment
 
 Build the image on the remote server:
