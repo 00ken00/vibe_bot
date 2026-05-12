@@ -10,7 +10,7 @@ The arbitrage bot lives at:
 src/vibe_bot/trades/bitbank_bitflyer/
 ```
 
-The command wrapper is `src/trades/bitbank_bitflyer_arbitrage.py`, and the main implementation is `vibe_bot.trades.bitbank_bitflyer.arbitrage`.
+Run it with `python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage`.
 
 Trade logic diagrams are in [src/vibe_bot/trades/bitbank_bitflyer/flowchart.md](src/vibe_bot/trades/bitbank_bitflyer/flowchart.md).
 
