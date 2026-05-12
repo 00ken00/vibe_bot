@@ -202,6 +202,7 @@ def _print_pnl_summary(trades: list[TradeFill]) -> None:
 
 def _print_bitflyer_pnl_sign_diagnostic(trades: list[TradeFill]) -> None:
     """Detect historical rows affected by the old bitFlyer long-close sign bug."""
+    reconstructed = reconstruct_bitflyer_realized_pnl(trades)
     position_before = Decimal("0")
     affected_rows = []
     corrected_delta = Decimal("0")
@@ -232,9 +233,61 @@ def _print_bitflyer_pnl_sign_diagnostic(trades: list[TradeFill]) -> None:
         f"{fmt(corrected_component_pnl)} JPY"
     )
     print(
+        "  reconstructed bitflyer_realized_pnl from CSV position deltas: "
+        f"{fmt(reconstructed)} JPY"
+    )
+    print(
         "  cashflow_jpy is not affected; this only affects bitflyer_realized_pnl_jpy"
     )
     print()
+
+
+def reconstruct_bitflyer_realized_pnl(trades: list[TradeFill]) -> Decimal:
+    position = Decimal("0")
+    open_cost = Decimal("0")
+    realized = Decimal("0")
+
+    for trade in trades:
+        logged_after = trade.bitflyer_position
+        if trade.bitflyer_side not in {"BUY", "SELL"} or trade.bitflyer_average_price is None:
+            position = logged_after
+            continue
+
+        amount = abs(logged_after - position)
+        if amount == 0:
+            continue
+
+        average_price = trade.bitflyer_average_price
+        if trade.bitflyer_side == "SELL":
+            if position < 0:
+                close_amount = min(amount, abs(position))
+                average_entry = open_cost / abs(position)
+                realized += (average_price - average_entry) * close_amount
+                open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    open_cost = average_price * leftover
+            else:
+                open_cost += average_price * amount
+            position += amount
+        else:
+            if position > 0:
+                close_amount = min(amount, position)
+                average_entry = open_cost / position
+                realized += (average_entry - average_price) * close_amount
+                open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    open_cost = average_price * leftover
+            else:
+                open_cost += average_price * amount
+            position -= amount
+
+        if position == 0:
+            open_cost = Decimal("0")
+        position = logged_after
+
+    return realized
 
 
 def _print_edge_summary(trades: list[TradeFill]) -> None:
