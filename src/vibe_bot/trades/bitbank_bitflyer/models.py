@@ -86,6 +86,16 @@ class Quote:
 
 
 @dataclass
+class BitbankTransaction:
+    side: str
+    price: Decimal
+    amount: Decimal
+    transaction_id: int | None = None
+    executed_at: int | None = None
+    timestamp: float = 0.0
+
+
+@dataclass
 class MakerOrder:
     """The single active or desired maker quote on bitbank.
 
@@ -138,6 +148,7 @@ class BotState:
     """
 
     quote: Quote = field(default_factory=Quote)
+    latest_bitbank_transaction: BitbankTransaction | None = None
     position: Decimal = Decimal("0")
     bitbank_position: Decimal = Decimal("0")
     bitflyer_position: Decimal = Decimal("0")

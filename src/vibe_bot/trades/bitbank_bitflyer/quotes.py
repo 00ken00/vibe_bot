@@ -10,6 +10,7 @@ from vibe_bot.bitbank import PublicWebSocket as BitbankPublicWebSocket
 from vibe_bot.bitflyer import PublicWebSocket as BitflyerPublicWebSocket
 from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
 from vibe_bot.trades.bitbank_bitflyer.logging import TradeLogger
+from vibe_bot.trades.bitbank_bitflyer.models import BitbankTransaction
 from vibe_bot.trades.bitbank_bitflyer.models import BotState
 from vibe_bot.trades.bitbank_bitflyer.models import Quote
 
@@ -119,6 +120,7 @@ class WebSocketQuoteFeed:
                 ):
                     await bitbank.subscribe(f"depth_whole_{self.config.bitbank_pair}")
                     await bitbank.subscribe(f"depth_diff_{self.config.bitbank_pair}")
+                    await bitbank.subscribe(f"transactions_{self.config.bitbank_pair}")
                     await bitflyer.subscribe(
                         f"lightning_board_snapshot_{self.config.bitflyer_product_code}"
                     )
@@ -159,6 +161,9 @@ class WebSocketQuoteFeed:
             message = msg.get("message") if isinstance(msg, dict) else None
             data = message.get("data") if isinstance(message, dict) else None
             if not isinstance(data, dict):
+                continue
+            if room.startswith("transactions_"):
+                self._publish_latest_bitbank_transaction(data)
                 continue
             bids = data.get("bids") or []
             asks = data.get("asks") or []
@@ -212,3 +217,25 @@ class WebSocketQuoteFeed:
         self.state.quote = quote
         if quote.ready:
             self.state.last_error = ""
+
+    def _publish_latest_bitbank_transaction(self, data: dict[str, object]) -> None:
+        transactions = data.get("transactions")
+        if isinstance(transactions, list):
+            candidates = [tx for tx in transactions if isinstance(tx, dict)]
+        elif all(key in data for key in ("side", "price", "amount")):
+            candidates = [data]
+        else:
+            candidates = []
+        if not candidates:
+            return
+        tx = candidates[-1]
+        self.state.latest_bitbank_transaction = BitbankTransaction(
+            side=str(tx.get("side") or ""),
+            price=Decimal(str(tx.get("price"))),
+            amount=Decimal(str(tx.get("amount"))),
+            transaction_id=(
+                int(tx["transaction_id"]) if tx.get("transaction_id") is not None else None
+            ),
+            executed_at=int(tx["executed_at"]) if tx.get("executed_at") is not None else None,
+            timestamp=time.time(),
+        )

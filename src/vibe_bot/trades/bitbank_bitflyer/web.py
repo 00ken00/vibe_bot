@@ -82,6 +82,7 @@ class WebApp:
     def snapshot(self) -> dict[str, object]:
         quote = self.state.quote
         active = self.state.active_maker
+        latest_bitbank_transaction = self.state.latest_bitbank_transaction
         uptime = time.time() - self.state.started_at
         return {
             "type": "snapshot",
@@ -128,6 +129,7 @@ class WebApp:
                 "sell_price": quote.sell_price,
                 "timestamp": quote.timestamp,
             },
+            "latest_bitbank_transaction": latest_bitbank_transaction,
             "active_maker": active,
         }
 
@@ -341,6 +343,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
   <section class="table">
     <div class="metric"><div class="label">bitbank Top Bid / Ask</div><div id="bb" class="value">--</div></div>
     <div class="metric"><div class="label">bitbank Maker Buy / Sell</div><div id="bbMaker" class="value">--</div></div>
+    <div class="metric"><div class="label">bitbank Last Trade</div><div id="bbLastTrade" class="value">--</div></div>
     <div class="metric"><div class="label">bitbank / bitFlyer Pos</div><div id="exchangePositions" class="value">--</div></div>
     <div class="metric"><div class="label">Unhedged BTC</div><div id="unhedgedPosition" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
@@ -452,6 +455,13 @@ function renderMetrics() {{
   setText("action", latest.last_action || "--");
   setText("bb", `${{fmt.format(num(q.bitbank_bid || 0))}} / ${{fmt.format(num(q.bitbank_ask || 0))}}`);
   setText("bbMaker", `${{fmt.format(num(q.bitbank_buy_maker || 0))}} / ${{fmt.format(num(q.bitbank_sell_maker || 0))}}`);
+  const bbTx = latest.latest_bitbank_transaction;
+  if (bbTx) {{
+    const side = bbTx.side || "--";
+    setText("bbLastTrade", `${{side}} ${{btcFmt.format(num(bbTx.amount || 0))}} @ ${{fmt.format(num(bbTx.price || 0))}}`);
+  }} else {{
+    setText("bbLastTrade", "--");
+  }}
   setText("exchangePositions", `${{btcFmt.format(num(latest.bitbank_position || 0))}} / ${{btcFmt.format(num(latest.bitflyer_position || 0))}}`);
   setText("unhedgedPosition", btcFmt.format(num(latest.unhedged_position || 0)));
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
