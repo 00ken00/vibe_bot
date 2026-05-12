@@ -88,6 +88,20 @@ Run live bitFlyer-only:
 python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only --live
 ```
 
+Open the monitor locally:
+
+```text
+http://127.0.0.1:8765/
+```
+
+If the arbitrage bot is already using the default web ports, choose different ports:
+
+```bash
+python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only \
+  --web-port 8775 \
+  --ws-port 8776
+```
+
 Logs are written to:
 
 ```text
