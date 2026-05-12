@@ -20,6 +20,7 @@ from vibe_bot.trades.bitbank_bitflyer.config import build_parser as build_base_p
 from vibe_bot.trades.bitbank_bitflyer.config import config_from_args
 from vibe_bot.trades.bitbank_bitflyer.config import parse_hhmmss
 from vibe_bot.trades.bitbank_bitflyer.logging import TradeLogger
+from vibe_bot.trades.bitbank_bitflyer.models import BitbankTransaction
 from vibe_bot.trades.bitbank_bitflyer.models import BotState
 from vibe_bot.trades.bitbank_bitflyer.models import MakerOrder
 from vibe_bot.trades.bitbank_bitflyer.quotes import WebSocketQuoteFeed
@@ -136,6 +137,7 @@ class BitflyerOnlyTrader:
                 await asyncio.sleep(1.0)
 
     async def _handle_transaction(self, tx: dict[str, object]) -> None:
+        self._publish_latest_bitbank_transaction(tx)
         maker = self.state.active_maker
         if maker is None:
             return
@@ -329,6 +331,18 @@ class BitflyerOnlyTrader:
         if isinstance(data, list):
             return [tx for tx in data if isinstance(tx, dict)]
         return []
+
+    def _publish_latest_bitbank_transaction(self, tx: dict[str, object]) -> None:
+        self.state.latest_bitbank_transaction = BitbankTransaction(
+            side=str(tx.get("side") or ""),
+            price=Decimal(str(tx.get("price"))),
+            amount=Decimal(str(tx.get("amount"))),
+            transaction_id=(
+                int(tx["transaction_id"]) if tx.get("transaction_id") is not None else None
+            ),
+            executed_at=int(tx["executed_at"]) if tx.get("executed_at") is not None else None,
+            timestamp=time.time(),
+        )
 
     def _same_synthetic_maker(
         self, current: MakerOrder | None, target: MakerOrder
