@@ -19,6 +19,7 @@ from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
 from vibe_bot.trades.bitbank_bitflyer.config import build_parser as build_base_parser
 from vibe_bot.trades.bitbank_bitflyer.config import config_from_args
 from vibe_bot.trades.bitbank_bitflyer.config import parse_hhmmss
+from vibe_bot.trades.bitbank_bitflyer.logging import Broadcaster
 from vibe_bot.trades.bitbank_bitflyer.logging import TradeLogger
 from vibe_bot.trades.bitbank_bitflyer.models import BitbankTransaction
 from vibe_bot.trades.bitbank_bitflyer.models import BotState
@@ -26,6 +27,7 @@ from vibe_bot.trades.bitbank_bitflyer.models import MakerOrder
 from vibe_bot.trades.bitbank_bitflyer.quotes import WebSocketQuoteFeed
 from vibe_bot.trades.bitbank_bitflyer.utils import JST
 from vibe_bot.trades.bitbank_bitflyer.utils import jst_iso
+from vibe_bot.trades.bitbank_bitflyer.web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.bitflyer_only")
 
@@ -399,6 +401,8 @@ class BitflyerOnlyTrader:
 async def run_bot(config: BotConfig) -> None:
     state = BotState()
     logger = TradeLogger(config.log_dir)
+    broadcaster = Broadcaster()
+    web = WebApp(config, state, broadcaster)
     quote_feed = WebSocketQuoteFeed(config, state, logger)
     trader = BitflyerOnlyTrader(config, state, logger)
     stop = asyncio.Event()
@@ -413,19 +417,24 @@ async def run_bot(config: BotConfig) -> None:
         except NotImplementedError:
             pass
 
+    web.start_http()
     logger.event("bitflyer_only_bot_started", config=asdict(config))
+    print(f"web app: http://{config.web_host}:{config.web_port}/")
     print("mode: DRY RUN" if config.dry_run else "mode: LIVE BITFLYER ONLY")
     print(f"log dir: {config.log_dir}")
 
     tasks = [
         asyncio.create_task(quote_feed.run(stop)),
         asyncio.create_task(trader.run(stop)),
+        asyncio.create_task(web.run_ws(stop)),
+        asyncio.create_task(web.publish_loop(stop)),
     ]
     try:
         await stop.wait()
     finally:
         stop.set()
         await asyncio.gather(*tasks, return_exceptions=True)
+        web.stop_http()
         logger.event("bitflyer_only_bot_stopped")
         logger.close()
 
