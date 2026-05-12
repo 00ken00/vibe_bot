@@ -709,7 +709,7 @@ class ArbitrageTrader:
             if previous_position < 0:
                 close_amount = min(amount, abs(previous_position))
                 average_entry = remaining_open_cost / abs(previous_position)
-                realized = (average_entry - average_price) * close_amount
+                realized = (average_price - average_entry) * close_amount
                 remaining_open_cost -= average_entry * close_amount
                 leftover = amount - close_amount
                 if leftover > 0:

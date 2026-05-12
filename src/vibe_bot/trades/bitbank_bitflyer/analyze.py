@@ -175,6 +175,7 @@ def print_report(result: AnalysisResult) -> None:
     print()
 
     _print_pnl_summary(trades)
+    _print_bitflyer_pnl_sign_diagnostic(trades)
     _print_edge_summary(trades)
     _print_action_summary(trades)
     _print_trigger_summary(result)
@@ -196,6 +197,43 @@ def _print_pnl_summary(trades: list[TradeFill]) -> None:
     print(f"  final bitflyer_realized_pnl_jpy: {fmt(last.bitflyer_realized_pnl_jpy)} JPY")
     print(f"  final bitbank + bitFlyer component PnL: {fmt(final_component_pnl)} JPY")
     print(f"  final position: {fmt(last.position)} BTC")
+    print()
+
+
+def _print_bitflyer_pnl_sign_diagnostic(trades: list[TradeFill]) -> None:
+    """Detect historical rows affected by the old bitFlyer long-close sign bug."""
+    position_before = Decimal("0")
+    affected_rows = []
+    corrected_delta = Decimal("0")
+    for trade in trades:
+        if (
+            trade.bitflyer_side == "SELL"
+            and position_before < 0
+            and trade.bitflyer_fill_pnl_jpy < 0
+        ):
+            affected_rows.append(trade)
+            corrected_delta += -trade.bitflyer_fill_pnl_jpy * Decimal("2")
+        position_before = trade.bitflyer_position
+
+    if not affected_rows:
+        return
+
+    last = trades[-1]
+    current_component_pnl = last.bitbank_realized_pnl_jpy + last.bitflyer_realized_pnl_jpy
+    corrected_component_pnl = current_component_pnl + corrected_delta
+    print("bitFlyer PnL sign diagnostic")
+    print(
+        "  affected rows: "
+        f"{len(affected_rows)} bitFlyer SELL rows closing negative bitFlyer position"
+    )
+    print(f"  estimated correction to component PnL: +{fmt(corrected_delta)} JPY")
+    print(
+        "  component PnL after correction estimate: "
+        f"{fmt(corrected_component_pnl)} JPY"
+    )
+    print(
+        "  cashflow_jpy is not affected; this only affects bitflyer_realized_pnl_jpy"
+    )
     print()
 
 
