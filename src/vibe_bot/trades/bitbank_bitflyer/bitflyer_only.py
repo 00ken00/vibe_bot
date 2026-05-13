@@ -239,6 +239,9 @@ class BitflyerOnlyTrader:
             )
             return
 
+        bitflyer_fill_pnl = self._apply_bitflyer_pnl(
+            bitflyer_side, executed_amount, actual_price
+        )
         if bitflyer_side == "SELL":
             self.state.bitflyer_position += executed_amount
             cashflow = (actual_price - synthetic_bitbank_price) * executed_amount
@@ -259,6 +262,10 @@ class BitflyerOnlyTrader:
             average_price=actual_price,
             synthetic_bitbank_price=synthetic_bitbank_price,
             cashflow_jpy=cashflow,
+            bitflyer_fill_pnl_jpy=bitflyer_fill_pnl,
+            bitflyer_realized_pnl_jpy=self.state.bitflyer_realized_pnl_jpy,
+            bitflyer_open_cost_jpy=self.state.bitflyer_open_cost_jpy,
+            bitflyer_cost_basis_ready=self.state.bitflyer_cost_basis_ready,
             position=self.state.position,
             bitflyer_position=self.state.bitflyer_position,
         )
@@ -287,14 +294,81 @@ class BitflyerOnlyTrader:
             bitbank_realized_pnl_jpy=Decimal("0"),
             bitbank_open_cost_jpy=Decimal("0"),
             bitbank_cost_basis_ready=True,
-            bitflyer_fill_pnl_jpy=Decimal("0"),
-            bitflyer_realized_pnl_jpy=Decimal("0"),
-            bitflyer_open_cost_jpy=Decimal("0"),
-            bitflyer_cost_basis_ready=False,
+            bitflyer_fill_pnl_jpy=bitflyer_fill_pnl,
+            bitflyer_realized_pnl_jpy=self.state.bitflyer_realized_pnl_jpy,
+            bitflyer_open_cost_jpy=self.state.bitflyer_open_cost_jpy,
+            bitflyer_cost_basis_ready=self.state.bitflyer_cost_basis_ready,
             dry_run=self.config.dry_run,
             hedge_enabled=True,
             hedge_executed=not self.config.dry_run,
         )
+
+    def _apply_bitflyer_pnl(
+        self, side: str, amount: Decimal, average_price: Decimal
+    ) -> Decimal:
+        previous_position = self.state.bitflyer_position
+        if previous_position == 0:
+            self.state.bitflyer_cost_basis_ready = True
+            self.state.bitflyer_open_cost_jpy = Decimal("0")
+
+        signed_amount = amount if side == "SELL" else -amount
+        if not self.state.bitflyer_cost_basis_ready:
+            closes_unknown_position = (
+                side == "BUY"
+                and previous_position > 0
+                and amount >= previous_position
+            ) or (
+                side == "SELL"
+                and previous_position < 0
+                and amount >= abs(previous_position)
+            )
+            self.logger.event(
+                "bitflyer_pnl_skipped",
+                reason="cost_basis_unavailable",
+                side=side,
+                previous_position=previous_position,
+                fill_amount=amount,
+                fill_price=average_price,
+            )
+            if closes_unknown_position:
+                leftover = amount - abs(previous_position)
+                self.state.bitflyer_cost_basis_ready = True
+                self.state.bitflyer_open_cost_jpy = average_price * leftover
+            return Decimal("0")
+
+        realized = Decimal("0")
+        remaining_open_cost = self.state.bitflyer_open_cost_jpy
+
+        if side == "SELL":
+            if previous_position < 0:
+                close_amount = min(amount, abs(previous_position))
+                average_entry = remaining_open_cost / abs(previous_position)
+                realized = (average_price - average_entry) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = average_price * leftover
+            else:
+                remaining_open_cost += average_price * amount
+        else:
+            if previous_position > 0:
+                close_amount = min(amount, previous_position)
+                average_entry = remaining_open_cost / previous_position
+                realized = (average_entry - average_price) * close_amount
+                remaining_open_cost -= average_entry * close_amount
+                leftover = amount - close_amount
+                if leftover > 0:
+                    remaining_open_cost = average_price * leftover
+            else:
+                remaining_open_cost += average_price * amount
+
+        next_position = previous_position + signed_amount
+        if next_position == 0:
+            remaining_open_cost = Decimal("0")
+
+        self.state.bitflyer_open_cost_jpy = remaining_open_cost
+        self.state.bitflyer_realized_pnl_jpy += realized
+        return realized
 
     async def _execution_summary(
         self, acceptance_id: str, fallback: Decimal
