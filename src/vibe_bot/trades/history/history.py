@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -15,16 +16,54 @@ from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
 from vibe_bot.gmo import PublicClient as GmoPublicClient
 
 JST = ZoneInfo("Asia/Tokyo")
+PairName = str
 
 
 @dataclass(frozen=True)
-class PairHistoryConfig:
+class PairPreset:
+    left_exchange: str
+    left_symbol: str
+    right_exchange: str
+    right_symbol: str
+
+
+PAIR_PRESETS: dict[PairName, PairPreset] = {
+    "bitbank_bitflyer": PairPreset("bitbank", "btc_jpy", "bitFlyer", "FX_BTC_JPY"),
+    "bitbank_gmo": PairPreset("bitbank", "btc_jpy", "GMO", "BTC"),
+    "gmo_bitflyer": PairPreset("GMO", "BTC_JPY", "bitFlyer", "FX_BTC_JPY"),
+}
+
+
+@dataclass(frozen=True)
+class HistoryConfig:
     left_exchange: str
     left_symbol: str
     right_exchange: str
     right_symbol: str
     days: int = 5
     candle_minutes: int = 5
+
+    @classmethod
+    def from_pair(
+        cls,
+        pair: PairName,
+        *,
+        days: int = 5,
+        candle_minutes: int = 5,
+    ) -> "HistoryConfig":
+        try:
+            preset = PAIR_PRESETS[pair]
+        except KeyError as exc:
+            choices = ", ".join(sorted(PAIR_PRESETS))
+            raise ValueError(f"unknown pair {pair!r}; choose one of: {choices}") from exc
+        return cls(
+            left_exchange=preset.left_exchange,
+            left_symbol=preset.left_symbol,
+            right_exchange=preset.right_exchange,
+            right_symbol=preset.right_symbol,
+            days=days,
+            candle_minutes=candle_minutes,
+        )
 
 
 @dataclass(frozen=True)
@@ -38,13 +77,15 @@ class HistoricalSpreadPoint:
 
 
 async def fetch_historical_spreads(
-    config: PairHistoryConfig,
+    config: HistoryConfig,
 ) -> list[HistoricalSpreadPoint]:
     """Fetch candle-based historical spread estimates.
 
     Candlesticks do not include bid/ask or order-book depth, so BUY and SELL
     both use the candle close spread: left exchange close - right exchange close.
     """
+    validate_config(config.days, config.candle_minutes)
+
     now = datetime.now(tz=JST)
     start = now - timedelta(days=config.days)
     start_ms = int(start.timestamp() * 1000)
@@ -94,7 +135,7 @@ async def fetch_historical_spreads(
 
 def build_figure(
     points: list[HistoricalSpreadPoint],
-    config: PairHistoryConfig,
+    config: HistoryConfig,
 ) -> go.Figure:
     x = [datetime.fromtimestamp(point.timestamp / 1000, tz=JST) for point in points]
     buy = [float(point.buy_price) for point in points]
@@ -234,7 +275,7 @@ def build_figure(
     return fig
 
 
-async def run(config: PairHistoryConfig, output_html: Path | str | None) -> go.Figure:
+async def run(config: HistoryConfig, output_html: Path | str | None) -> go.Figure:
     points = await fetch_historical_spreads(config)
     if not points:
         raise RuntimeError("no matching historical candle points were returned")
@@ -245,6 +286,76 @@ async def run(config: PairHistoryConfig, output_html: Path | str | None) -> go.F
         print(f"wrote: {output_path}")
     fig.show(renderer="browser")
     return fig
+
+
+def main(
+    pair: PairName = "bitbank_bitflyer",
+    *,
+    left_exchange: str | None = None,
+    left_symbol: str | None = None,
+    right_exchange: str | None = None,
+    right_symbol: str | None = None,
+    days: int = 5,
+    candle_minutes: int = 5,
+    output_html: Path | str | None = None,
+) -> go.Figure:
+    """Fetch historical candles and open a Plotly spread chart.
+
+    Use `pair` for a preset, or pass all left/right exchange and symbol fields
+    for an ad hoc comparison.
+    """
+    validate_config(days, candle_minutes)
+    if any(v is not None for v in (left_exchange, left_symbol, right_exchange, right_symbol)):
+        if None in (left_exchange, left_symbol, right_exchange, right_symbol):
+            raise ValueError(
+                "left_exchange, left_symbol, right_exchange, and right_symbol "
+                "must all be provided for a custom comparison"
+            )
+        config = HistoryConfig(
+            left_exchange=left_exchange,
+            left_symbol=left_symbol,
+            right_exchange=right_exchange,
+            right_symbol=right_symbol,
+            days=days,
+            candle_minutes=candle_minutes,
+        )
+    else:
+        config = HistoryConfig.from_pair(
+            pair,
+            days=days,
+            candle_minutes=candle_minutes,
+        )
+    return asyncio.run(run(config, output_html))
+
+
+def cli() -> go.Figure:
+    parser = argparse.ArgumentParser(
+        description="Plot historical candle-close spreads between two exchanges."
+    )
+    parser.add_argument(
+        "--pair",
+        default="bitbank_bitflyer",
+        choices=sorted(PAIR_PRESETS),
+        help="Preset comparison pair.",
+    )
+    parser.add_argument("--left-exchange", help="Custom left exchange name.")
+    parser.add_argument("--left-symbol", help="Custom left exchange symbol.")
+    parser.add_argument("--right-exchange", help="Custom right exchange name.")
+    parser.add_argument("--right-symbol", help="Custom right exchange symbol.")
+    parser.add_argument("--days", type=int, default=5)
+    parser.add_argument("--candle-minutes", type=int, default=5)
+    parser.add_argument("--output-html")
+    args = parser.parse_args()
+    return main(
+        pair=args.pair,
+        left_exchange=args.left_exchange,
+        left_symbol=args.left_symbol,
+        right_exchange=args.right_exchange,
+        right_symbol=args.right_symbol,
+        days=args.days,
+        candle_minutes=args.candle_minutes,
+        output_html=args.output_html,
+    )
 
 
 def validate_config(days: int, candle_minutes: int) -> None:
@@ -381,3 +492,7 @@ def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
         hour=boundary_hour, minute=0, second=0, microsecond=0
     )
     return int(boundary.timestamp() * 1000)
+
+
+if __name__ == "__main__":
+    cli()
