@@ -16,6 +16,7 @@
     "ohlc",
     "plotly",
     "pydantic",
+    "pythonpath",
     "veryshj",
     "vwap"
   ]
