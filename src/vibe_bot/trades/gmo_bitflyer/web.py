@@ -300,7 +300,7 @@ td {{ font-size: 13px; overflow-wrap: anywhere; }}
     <div id="gateTrend" class="gate pending"><div class="label">EMA Trend</div><div id="gateTrendState" class="state">--</div><div id="gateTrendDetail" class="small-value">--</div></div>
     <div id="gateNoise" class="gate pending"><div class="label">Noise Buffer</div><div id="gateNoiseState" class="state">--</div><div id="gateNoiseDetail" class="small-value">--</div></div>
     <div id="gatePersistence" class="gate pending"><div class="label">Persistence</div><div id="gatePersistenceState" class="state">--</div><div id="gatePersistenceDetail" class="small-value">--</div></div>
-    <div id="gateSlippage" class="gate pending"><div class="label">Order Limits</div><div id="gateSlippageState" class="state">--</div><div id="gateSlippageDetail" class="small-value">--</div></div>
+    <div id="gateSlippage" class="gate pending"><div class="label">Order Types</div><div id="gateSlippageState" class="state">--</div><div id="gateSlippageDetail" class="small-value">--</div></div>
   </section>
 
   <section class="chart-wrap">
@@ -482,7 +482,7 @@ function renderGates() {{
     setGate("gatePersistence", reason === "persistence" ? "block" : "pass",
       reason === "persistence" ? `requires {self.config.persistence_seconds}s` : `requires {self.config.persistence_seconds}s`);
     setGate("gateSlippage", reason === "persistence" ? "pending" : "pass",
-      `GMO ${{target.gmo_side}} ${{money(target.gmo_limit_price)}} / bitFlyer ${{target.bitflyer_side}} ${{money(target.bitflyer_limit_price)}}`);
+      `GMO ${{target.gmo_side}} FAK limit ${{money(target.gmo_limit_price)}} / bitFlyer ${{target.bitflyer_side}} MARKET IOC`);
   }} else {{
     setGate("gatePersistence", "pending", "--");
     setGate("gateSlippage", "pending", "--");

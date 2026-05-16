@@ -329,10 +329,6 @@ class ArbitrageTrader:
             gmo_limit = quantize_up(
                 gmo_expected + self.config.max_slippage_jpy, self.config.tick_size
             )
-            bitflyer_limit = quantize_down(
-                bitflyer_expected - self.config.max_slippage_jpy,
-                self.config.tick_size,
-            )
             gmo_side = "BUY"
             bitflyer_side = "SELL"
         else:
@@ -343,13 +339,9 @@ class ArbitrageTrader:
             gmo_limit = quantize_down(
                 gmo_expected - self.config.max_slippage_jpy, self.config.tick_size
             )
-            bitflyer_limit = quantize_up(
-                bitflyer_expected + self.config.max_slippage_jpy,
-                self.config.tick_size,
-            )
             gmo_side = "SELL"
             bitflyer_side = "BUY"
-        if gmo_limit <= 0 or bitflyer_limit <= 0:
+        if gmo_limit <= 0:
             return None
         return TradeTarget(
             action=action,
@@ -364,7 +356,6 @@ class ArbitrageTrader:
             gmo_expected_price=gmo_expected,
             bitflyer_expected_price=bitflyer_expected,
             gmo_limit_price=gmo_limit,
-            bitflyer_limit_price=bitflyer_limit,
         )
 
     def _persistence_passed(self, target: TradeTarget) -> bool:
@@ -550,10 +541,9 @@ class ArbitrageTrader:
             return
         bf_ack = await self._bf_private.send_child_order(
             product_code=self.config.bitflyer_product_code,
-            child_order_type="LIMIT",
+            child_order_type="MARKET",
             side=target.bitflyer_side,
             size=gmo_amount,
-            price=target.bitflyer_limit_price,
             time_in_force="IOC",
         )
         bitflyer_price, bitflyer_amount = await self._bitflyer_execution_summary(

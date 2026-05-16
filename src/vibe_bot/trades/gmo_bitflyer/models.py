@@ -107,7 +107,6 @@ class TradeTarget:
     gmo_expected_price: Decimal
     bitflyer_expected_price: Decimal
     gmo_limit_price: Decimal
-    bitflyer_limit_price: Decimal
 
 
 @dataclass

@@ -344,13 +344,14 @@ To disable persistence:
 --persistence-seconds 0
 ```
 
-## 7. Slippage-Capped Orders
+## 7. GMO Slippage Cap and bitFlyer Market Hedge
 
-Live mode does not send blind market orders. It sends aggressive limit orders:
+Live mode executes GMO with an aggressive slippage-capped limit order, then
+hedges the executed GMO amount on bitFlyer with a market IOC order:
 
 ```text
 GMO:      LIMIT FAK
-bitFlyer: LIMIT IOC
+bitFlyer: MARKET IOC
 ```
 
 Parameter:
@@ -362,29 +363,32 @@ Parameter:
 For BUY:
 
 ```text
-GMO BUY limit        = gmo_ask_vwap + max_slippage_jpy
-bitFlyer SELL limit  = bitflyer_bid_vwap - max_slippage_jpy
+GMO BUY limit       = gmo_ask_vwap + max_slippage_jpy
+bitFlyer hedge      = MARKET IOC SELL
 ```
 
 For SELL:
 
 ```text
-GMO SELL limit       = gmo_bid_vwap - max_slippage_jpy
-bitFlyer BUY limit   = bitflyer_ask_vwap + max_slippage_jpy
+GMO SELL limit      = gmo_bid_vwap - max_slippage_jpy
+bitFlyer hedge      = MARKET IOC BUY
 ```
 
-Higher values increase fill probability but allow worse execution. Lower values
-reduce slippage risk but increase partial or missed fills.
+`--max-slippage-jpy` only controls the GMO FAK limit price. Higher values
+increase GMO fill probability but allow worse GMO execution. Lower values reduce
+GMO slippage risk but increase partial or missed GMO fills.
 
-To make this gate strict:
+The bitFlyer hedge intentionally has no price limit now. This minimizes
+unhedged position risk after GMO fills, at the cost of accepting bitFlyer market
+slippage.
+
+To make the GMO side strict:
 
 ```bash
 --max-slippage-jpy 0
 ```
 
-There is no safe CLI setting that fully disables slippage protection. Very large
-values approximate market-order behavior, but that is intentionally not the
-default.
+There is no CLI setting that changes the bitFlyer hedge back to limit order.
 
 ## Practical Presets
 
@@ -424,4 +428,5 @@ python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
   --entry-cooldown-seconds 0
 ```
 
-This still uses the stage trigger and slippage-capped limit orders.
+This still uses the stage trigger, a slippage-capped GMO FAK limit order, and a
+bitFlyer market IOC hedge.
