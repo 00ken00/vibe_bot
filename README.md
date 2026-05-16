@@ -116,6 +116,49 @@ Show all options:
 python3 -m vibe_bot.trades.bitbank_bitflyer.bitflyer_only --help
 ```
 
+## GMO / bitFlyer arbitrage
+
+The GMO taker / bitFlyer taker bot lives at:
+
+```text
+src/vibe_bot/trades/gmo_bitflyer/
+```
+
+Run dry-run:
+
+```bash
+python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
+  --threshold-jpy 1000 \
+  --threshold-offset-jpy 0 \
+  --order-size 0.001 \
+  --stage-size 0.001 \
+  --max-stages 3
+```
+
+It keeps the same stage trigger idea as the bitbank / bitFlyer bot, but it does
+not maintain a maker order. A stage trigger only creates a candidate trade; the
+bot executes only after the EMA trend agrees with the direction, the executable
+spread clears a volatility-based noise buffer, the candidate persists for the
+configured time, and both legs use slippage-capped IOC/FAK limit orders.
+
+Live trading is explicit and will place real GMO and bitFlyer orders:
+
+```bash
+python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage --live
+```
+
+Show all options:
+
+```bash
+python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage --help
+```
+
+Open the GMO / bitFlyer monitor locally:
+
+```text
+http://127.0.0.1:8775/
+```
+
 ## Docker JupyterLab Environment
 
 Build the image on the remote server:
