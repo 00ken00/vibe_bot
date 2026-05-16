@@ -17,6 +17,22 @@ Run live:
 python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage --live
 ```
 
+Open the web monitor:
+
+```text
+http://127.0.0.1:8775/
+```
+
+The GMO / bitFlyer monitor uses `--web-port 8775` and `--ws-port 8776` by
+default so it can run next to the bitbank / bitFlyer monitor. Override them if
+needed:
+
+```bash
+python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
+  --web-port 8785 \
+  --ws-port 8786
+```
+
 ## Spread Definitions
 
 The bot keeps full order books for both exchanges and uses executable VWAP for
@@ -59,6 +75,10 @@ The gate lives in `arbitrage.py` in `_check_trade_condition()`. The order is:
 If any gate blocks the trade, the event log writes `trade_condition_blocked`
 with a clear `reason`, such as `stage_trigger_not_crossed`, `trend_disagrees`,
 `edge_below_noise_buffer`, or `persistence`.
+
+The same information is shown in the web monitor. The gate cards show the latest
+decision, the selected candidate stage if one exists, EMA trend comparison,
+noise-buffer edge comparison, and persistence status.
 
 ## 1. Maintenance Guard and Cooldown
 

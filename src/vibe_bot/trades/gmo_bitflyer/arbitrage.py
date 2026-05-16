@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.gmo import PrivateClient as GmoPrivateClient
 from vibe_bot.trades.bitbank_bitflyer.config import parse_hhmmss
+from vibe_bot.trades.bitbank_bitflyer.logging import Broadcaster
 from vibe_bot.trades.bitbank_bitflyer.utils import JST
 from vibe_bot.trades.bitbank_bitflyer.utils import jst_iso
 from vibe_bot.trades.bitbank_bitflyer.utils import quantize_down
@@ -32,6 +33,7 @@ from vibe_bot.trades.gmo_bitflyer.models import StageStatus
 from vibe_bot.trades.gmo_bitflyer.models import TradeCondition
 from vibe_bot.trades.gmo_bitflyer.models import TradeTarget
 from vibe_bot.trades.gmo_bitflyer.quotes import WebSocketQuoteFeed
+from vibe_bot.trades.gmo_bitflyer.web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.gmo_bitflyer.arbitrage")
 
@@ -140,6 +142,7 @@ class ArbitrageTrader:
         self.state.filter = self.filter.update(raw_spread)
         self.state.stage_status = self._stage_status()
         condition = self._check_trade_condition()
+        self.state.last_trade_condition = condition
         if not condition.passed:
             action = (
                 BotAction.WAITING_FOR_FILTER
@@ -184,6 +187,7 @@ class ArbitrageTrader:
             return TradeCondition(
                 False,
                 "filter_warming_up",
+                target=target,
                 details={
                     "samples": snapshot.samples,
                     "min_filter_samples": self.config.min_filter_samples,
@@ -196,6 +200,7 @@ class ArbitrageTrader:
             return TradeCondition(
                 False,
                 "trend_disagrees",
+                target=target,
                 details={
                     "action": target.action,
                     "trend_spread": snapshot.trend_spread,
@@ -210,6 +215,7 @@ class ArbitrageTrader:
             return TradeCondition(
                 False,
                 "edge_below_noise_buffer",
+                target=target,
                 details={
                     "action": target.action,
                     "edge": edge,
@@ -225,6 +231,7 @@ class ArbitrageTrader:
             return TradeCondition(
                 False,
                 "persistence",
+                target=target,
                 details={
                     "action": target.action,
                     "required_seconds": self.config.persistence_seconds,
@@ -739,7 +746,9 @@ class ArbitrageTrader:
 async def run_bot(config: BotConfig) -> None:
     state = BotState()
     logger = TradeLogger(config.log_dir)
+    broadcaster = Broadcaster()
     stop = asyncio.Event()
+    web = WebApp(config, state, broadcaster)
     quote_feed = WebSocketQuoteFeed(config, state, logger)
     trader = ArbitrageTrader(config, state, logger)
 
@@ -754,11 +763,15 @@ async def run_bot(config: BotConfig) -> None:
             pass
 
     logger.event("bot_started", config=asdict(config))
+    web.start_http()
+    print(f"web app: http://{config.web_host}:{config.web_port}/")
     print("mode: DRY RUN" if config.dry_run else "mode: LIVE")
     print(f"logs: {config.log_dir}")
     tasks = [
         asyncio.create_task(quote_feed.run(stop)),
         asyncio.create_task(trader.run(stop)),
+        asyncio.create_task(web.run_ws(stop)),
+        asyncio.create_task(web.publish_loop(stop)),
     ]
     try:
         await stop.wait()
@@ -766,6 +779,7 @@ async def run_bot(config: BotConfig) -> None:
         stop.set()
         await trader.shutdown("process_shutdown")
         await asyncio.gather(*tasks, return_exceptions=True)
+        web.stop_http()
         logger.event("bot_stopped")
         logger.close()
 

@@ -136,6 +136,7 @@ class BotState:
     realized_pnl_jpy: Decimal = Decimal("0")
     filled_base: Decimal = Decimal("0")
     trade_count: int = 0
+    last_trade_condition: TradeCondition | None = None
     last_action: BotAction = BotAction.IDLE
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
     last_error: str = ""

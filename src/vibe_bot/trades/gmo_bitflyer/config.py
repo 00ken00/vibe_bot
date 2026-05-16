@@ -35,6 +35,10 @@ class BotConfig:
     bitflyer_maintenance_start_jst: str = "03:59:30"
     bitflyer_maintenance_end_jst: str = "04:12:30"
     dry_run: bool = True
+    web_host: str = "0.0.0.0"
+    web_port: int = 8775
+    ws_port: int = 8776
+    monitor_update_interval: float = 1.0
     log_dir: Path = Path("logs/trades/gmo_bitflyer_arbitrage")
 
     @property
@@ -91,6 +95,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--bitflyer-maintenance-start-jst", default="03:59:30")
     parser.add_argument("--bitflyer-maintenance-end-jst", default="04:12:30")
+    parser.add_argument("--web-host", default="0.0.0.0")
+    parser.add_argument("--web-port", type=int, default=8775)
+    parser.add_argument("--ws-port", type=int, default=8776)
+    parser.add_argument(
+        "--monitor-update-interval",
+        type=float,
+        default=1.0,
+        help="seconds between browser websocket snapshot updates",
+    )
     parser.add_argument(
         "--log-dir", type=Path, default=Path("logs/trades/gmo_bitflyer_arbitrage")
     )
@@ -132,6 +145,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--persistence-seconds must be non-negative")
     if args.max_slippage_jpy < 0:
         raise SystemExit("--max-slippage-jpy must be non-negative")
+    if args.monitor_update_interval <= 0:
+        raise SystemExit("--monitor-update-interval must be positive")
     try:
         parse_hhmmss(args.bitflyer_maintenance_start_jst)
         parse_hhmmss(args.bitflyer_maintenance_end_jst)
@@ -160,5 +175,9 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         bitflyer_maintenance_start_jst=args.bitflyer_maintenance_start_jst,
         bitflyer_maintenance_end_jst=args.bitflyer_maintenance_end_jst,
         dry_run=not args.live,
+        web_host=args.web_host,
+        web_port=args.web_port,
+        ws_port=args.ws_port,
+        monitor_update_interval=args.monitor_update_interval,
         log_dir=args.log_dir,
     )
