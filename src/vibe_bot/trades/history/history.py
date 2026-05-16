@@ -494,7 +494,7 @@ def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
     return int(boundary.timestamp() * 1000)
 
 
-if __name__ == "__main__":
+def __main__():
     main(
         left_exchange="bitbank",
         left_symbol="btc_jpy",
@@ -503,7 +503,7 @@ if __name__ == "__main__":
         days=5,
         candle_minutes=5,
     )
-    
+
     main(
         left_exchange="bitbank",
         left_symbol="btc_jpy",
@@ -513,12 +513,11 @@ if __name__ == "__main__":
         candle_minutes=5,
     )
 
-    
     main(
-        left_exchange="bitFlyer",
-        left_symbol="FX_BTC_JPY",
-        right_exchange="GMO",
-        right_symbol="BTC_JPY",
+        left_exchange="GMO",
+        left_symbol="BTC_JPY",
+        right_exchange="bitFlyer",
+        right_symbol="FX_BTC_JPY",
         days=5,
         candle_minutes=5,
     )
