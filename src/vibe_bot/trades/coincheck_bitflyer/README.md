@@ -7,6 +7,7 @@ The bot:
 
 - Maintains Coincheck and bitFlyer order books.
 - Computes executable VWAP spreads for the configured `--order-size`.
+- Treats Coincheck spot inventory relative to `--coincheck-neutral-spot-amount`.
 - Places a slippage-capped Coincheck limit order first.
 - Hedges the filled Coincheck amount on bitFlyer using a market IOC order.
 - Cancels any unfilled Coincheck limit remainder after the execution poll.
@@ -75,6 +76,25 @@ The trend filter uses:
 ```text
 mid_spread = Coincheck mid price - bitFlyer mid price
 ```
+
+## Neutral Coincheck Spot Amount
+
+Coincheck is spot-only, but the bot can treat a configured spot balance as
+strategy-neutral:
+
+```text
+strategy_position = Coincheck spot BTC balance - coincheck_neutral_spot_amount
+```
+
+Example:
+
+```bash
+python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage \
+  --coincheck-neutral-spot-amount 1.2
+```
+
+If the actual Coincheck BTC balance is `1.0`, the bot treats the Coincheck leg
+as `-0.2 BTC` relative to the neutral inventory.
 
 ## Execution Notes
 

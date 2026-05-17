@@ -15,6 +15,7 @@ class BotConfig:
 
     coincheck_pair: str = "btc_jpy"
     bitflyer_product_code: str = "FX_BTC_JPY"
+    coincheck_neutral_spot_amount: Decimal = Decimal("0")
     threshold_jpy: Decimal = Decimal("1000")
     threshold_offset_jpy: Decimal = Decimal("0")
     order_size: Decimal = Decimal("0.001")
@@ -52,6 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--coincheck-pair", default="btc_jpy")
     parser.add_argument("--bitflyer-product-code", default="FX_BTC_JPY")
+    parser.add_argument(
+        "--coincheck-neutral-spot-amount",
+        type=decimal_arg,
+        default=Decimal("0"),
+        help=(
+            "Coincheck spot BTC amount treated as strategy-neutral; "
+            "strategy position = spot balance - this amount"
+        ),
+    )
     parser.add_argument("--threshold-jpy", type=decimal_arg, default=Decimal("1000"))
     parser.add_argument(
         "--threshold-offset-jpy",
@@ -115,6 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
 def config_from_args(args: argparse.Namespace) -> BotConfig:
     if args.threshold_jpy <= 0:
         raise SystemExit("--threshold-jpy must be positive")
+    if args.coincheck_neutral_spot_amount < 0:
+        raise SystemExit("--coincheck-neutral-spot-amount must be non-negative")
     if args.order_size <= 0:
         raise SystemExit("--order-size must be positive")
     if args.stage_size <= 0:
@@ -155,6 +167,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
     return BotConfig(
         coincheck_pair=args.coincheck_pair,
         bitflyer_product_code=args.bitflyer_product_code,
+        coincheck_neutral_spot_amount=args.coincheck_neutral_spot_amount,
         threshold_jpy=args.threshold_jpy,
         threshold_offset_jpy=args.threshold_offset_jpy,
         order_size=args.order_size,

@@ -488,10 +488,13 @@ class ArbitrageTrader:
             if asset.lower() == base_asset:
                 spot_amount = amount
                 break
-        return spot_amount, {
+        strategy_position = spot_amount - self.config.coincheck_neutral_spot_amount
+        return strategy_position, {
             "pair": self.config.coincheck_pair,
             "base_asset": base_asset,
             "spot_amount": spot_amount,
+            "neutral_spot_amount": self.config.coincheck_neutral_spot_amount,
+            "strategy_position": strategy_position,
         }
 
     async def _bitflyer_strategy_position(self) -> tuple[Decimal, dict[str, object]]:
