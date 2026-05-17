@@ -518,6 +518,18 @@ class ArbitrageTrader:
         self._last_trade_at = time.time()
         self.logger.event("trade_attempt", target=asdict(target), dry_run=self.config.dry_run)
         if self.config.dry_run:
+            self.state.record_gmo_order_metric(
+                attempted_size=target.amount,
+                filled_size=target.amount,
+                order_id="DRY-RUN",
+            )
+            self.state.record_bitflyer_order_metric(
+                expected_price=target.bitflyer_expected_price,
+                average_price=target.bitflyer_expected_price,
+                filled_size=target.amount,
+                slippage_jpy_per_btc=Decimal("0"),
+                acceptance_id="DRY-RUN",
+            )
             self._record_trade(
                 target=target,
                 amount=target.amount,
@@ -549,6 +561,19 @@ class ArbitrageTrader:
         bitflyer_price, bitflyer_amount = await self._bitflyer_execution_summary(
             bf_ack.child_order_acceptance_id,
             fallback=target.bitflyer_expected_price,
+        )
+        self.state.record_bitflyer_order_metric(
+            expected_price=target.bitflyer_expected_price,
+            average_price=bitflyer_price if bitflyer_amount > 0 else None,
+            filled_size=bitflyer_amount,
+            slippage_jpy_per_btc=self._bitflyer_slippage_jpy_per_btc(
+                target.bitflyer_side,
+                target.bitflyer_expected_price,
+                bitflyer_price,
+            )
+            if bitflyer_amount > 0
+            else Decimal("0"),
+            acceptance_id=bf_ack.child_order_acceptance_id,
         )
         hedge_amount = min(gmo_amount, bitflyer_amount)
         if hedge_amount <= 0:
@@ -604,34 +629,60 @@ class ArbitrageTrader:
         open_amount = target.amount - close_amount
 
         if close_amount > 0:
-            order_id = await self._gmo_private.close_bulk_order(
-                symbol=self.config.gmo_symbol,
-                side=target.gmo_side,
-                execution_type="LIMIT",
-                size=close_amount,
-                price=target.gmo_limit_price,
-                time_in_force="FAK",
-            )
+            order_id: int | None = None
+            try:
+                order_id = await self._gmo_private.close_bulk_order(
+                    symbol=self.config.gmo_symbol,
+                    side=target.gmo_side,
+                    execution_type="LIMIT",
+                    size=close_amount,
+                    price=target.gmo_limit_price,
+                    time_in_force="FAK",
+                )
+            except Exception:
+                self.state.record_gmo_order_metric(
+                    attempted_size=close_amount,
+                    filled_size=Decimal("0"),
+                )
+                raise
             order_ids.append(order_id)
             price, amount = await self._gmo_execution_summary(
                 order_id, fallback=target.gmo_expected_price
+            )
+            self.state.record_gmo_order_metric(
+                attempted_size=close_amount,
+                filled_size=amount,
+                order_id=order_id,
             )
             total_amount += amount
             total_notional += price * amount
 
         if open_amount >= self.config.min_order_size:
-            order_id = await self._gmo_private.place_order(
-                symbol=self.config.gmo_symbol,
-                side=target.gmo_side,
-                execution_type="LIMIT",
-                size=open_amount,
-                price=target.gmo_limit_price,
-                time_in_force="FAK",
-                client_order_id=str(uuid.uuid4()),
-            )
+            order_id = None
+            try:
+                order_id = await self._gmo_private.place_order(
+                    symbol=self.config.gmo_symbol,
+                    side=target.gmo_side,
+                    execution_type="LIMIT",
+                    size=open_amount,
+                    price=target.gmo_limit_price,
+                    time_in_force="FAK",
+                    client_order_id=str(uuid.uuid4()),
+                )
+            except Exception:
+                self.state.record_gmo_order_metric(
+                    attempted_size=open_amount,
+                    filled_size=Decimal("0"),
+                )
+                raise
             order_ids.append(order_id)
             price, amount = await self._gmo_execution_summary(
                 order_id, fallback=target.gmo_expected_price
+            )
+            self.state.record_gmo_order_metric(
+                attempted_size=open_amount,
+                filled_size=amount,
+                order_id=order_id,
             )
             total_amount += amount
             total_notional += price * amount
@@ -671,6 +722,13 @@ class ArbitrageTrader:
                     return total_notional / total_size, total_size
             await asyncio.sleep(0.25)
         return fallback, Decimal("0")
+
+    def _bitflyer_slippage_jpy_per_btc(
+        self, side: str, expected_price: Decimal, average_price: Decimal
+    ) -> Decimal:
+        if side == "BUY":
+            return average_price - expected_price
+        return expected_price - average_price
 
     def _record_trade(
         self,

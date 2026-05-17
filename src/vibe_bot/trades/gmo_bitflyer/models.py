@@ -125,6 +125,22 @@ class ActionHistoryEntry:
 
 
 @dataclass
+class GmoOrderMetric:
+    attempted_size: Decimal
+    filled_size: Decimal
+    order_id: int | str | None = None
+
+
+@dataclass
+class BitflyerOrderMetric:
+    expected_price: Decimal
+    average_price: Decimal | None
+    filled_size: Decimal
+    slippage_jpy_per_btc: Decimal | None
+    acceptance_id: str | None = None
+
+
+@dataclass
 class BotState:
     quote: Quote = field(default_factory=Quote)
     filter: FilterSnapshot = field(default_factory=FilterSnapshot)
@@ -138,6 +154,8 @@ class BotState:
     last_trade_condition: TradeCondition | None = None
     last_action: BotAction = BotAction.IDLE
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
+    gmo_order_metrics: list[GmoOrderMetric] = field(default_factory=list)
+    bitflyer_order_metrics: list[BitflyerOrderMetric] = field(default_factory=list)
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
 
@@ -158,3 +176,64 @@ class BotState:
         )
         if len(self.action_history) > 100:
             del self.action_history[:-100]
+
+    @property
+    def gmo_order_success_rate(self) -> Decimal | None:
+        attempted = sum(
+            (entry.attempted_size for entry in self.gmo_order_metrics),
+            Decimal("0"),
+        )
+        if attempted <= 0:
+            return None
+        filled = sum(
+            (entry.filled_size for entry in self.gmo_order_metrics),
+            Decimal("0"),
+        )
+        return filled / attempted
+
+    @property
+    def bitflyer_average_slippage_jpy_per_btc(self) -> Decimal | None:
+        slippages = [
+            entry.slippage_jpy_per_btc
+            for entry in self.bitflyer_order_metrics
+            if entry.slippage_jpy_per_btc is not None
+        ]
+        if not slippages:
+            return None
+        return sum(slippages, Decimal("0")) / Decimal(len(slippages))
+
+    def record_gmo_order_metric(
+        self,
+        *,
+        attempted_size: Decimal,
+        filled_size: Decimal,
+        order_id: int | str | None = None,
+    ) -> None:
+        self.gmo_order_metrics.append(
+            GmoOrderMetric(
+                attempted_size=attempted_size,
+                filled_size=filled_size,
+                order_id=order_id,
+            )
+        )
+        del self.gmo_order_metrics[:-20]
+
+    def record_bitflyer_order_metric(
+        self,
+        *,
+        expected_price: Decimal,
+        average_price: Decimal | None,
+        filled_size: Decimal,
+        slippage_jpy_per_btc: Decimal | None,
+        acceptance_id: str | None = None,
+    ) -> None:
+        self.bitflyer_order_metrics.append(
+            BitflyerOrderMetric(
+                expected_price=expected_price,
+                average_price=average_price,
+                filled_size=filled_size,
+                slippage_jpy_per_btc=slippage_jpy_per_btc,
+                acceptance_id=acceptance_id,
+            )
+        )
+        del self.bitflyer_order_metrics[:-20]

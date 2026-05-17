@@ -97,6 +97,12 @@ class WebApp:
             "realized_pnl_jpy": self.state.realized_pnl_jpy,
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
+            "gmo_order_success_rate": self.state.gmo_order_success_rate,
+            "gmo_order_metric_count": len(self.state.gmo_order_metrics),
+            "bitflyer_average_slippage_jpy_per_btc": (
+                self.state.bitflyer_average_slippage_jpy_per_btc
+            ),
+            "bitflyer_order_metric_count": len(self.state.bitflyer_order_metrics),
             "last_action": self.state.last_action.value,
             "stage_status": self.state.stage_status,
             "filter": self.state.filter,
@@ -291,6 +297,8 @@ td {{ font-size: 13px; overflow-wrap: anywhere; }}
     <div class="metric"><div class="label">Realized PnL JPY</div><div id="pnl" class="value">--</div></div>
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
     <div class="metric"><div class="label">Trades</div><div id="trades" class="value">--</div></div>
+    <div class="metric"><div class="label">GMO Order Success</div><div id="gmoOrderSuccess" class="value">--</div><div id="gmoOrderSuccessDetail" class="label">recent 0 / 20</div></div>
+    <div class="metric"><div class="label">bitFlyer Avg Slippage/BTC</div><div id="bitflyerSlippage" class="value">--</div><div id="bitflyerSlippageDetail" class="label">recent 0 / 20</div></div>
     <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
   </section>
 
@@ -361,6 +369,7 @@ function num(v) {{ return v == null ? null : Number(v); }}
 function finite(v) {{ return Number.isFinite(v); }}
 function money(v) {{ const n = num(v); return finite(n) ? fmt.format(n) : "--"; }}
 function btc(v) {{ const n = num(v); return finite(n) ? btcFmt.format(n) : "--"; }}
+function pct(v) {{ const n = num(v); return finite(n) ? `${{fmt.format(n * 100)}}%` : "--"; }}
 function setText(id, value) {{ el(id).textContent = value; }}
 function escapeHtml(value) {{
   return String(value).replace(/[&<>"']/g, c => ({{
@@ -402,6 +411,10 @@ function render() {{
   setText("pnl", money(latest.realized_pnl_jpy));
   setText("filled", btc(latest.filled_base));
   setText("trades", latest.trade_count ?? "--");
+  setText("gmoOrderSuccess", pct(latest.gmo_order_success_rate));
+  setText("gmoOrderSuccessDetail", `recent ${{latest.gmo_order_metric_count ?? 0}} / 20`);
+  setText("bitflyerSlippage", money(latest.bitflyer_average_slippage_jpy_per_btc));
+  setText("bitflyerSlippageDetail", `recent ${{latest.bitflyer_order_metric_count ?? 0}} / 20`);
   setText("action", latest.last_action || "--");
   setText("gmoTop", `${{money(q.gmo_bid)}} / ${{money(q.gmo_ask)}}`);
   setText("gmoDepth", `${{money(q.gmo_bid_vwap)}} / ${{money(q.gmo_ask_vwap)}}`);
