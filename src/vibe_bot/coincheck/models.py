@@ -32,6 +32,28 @@ class Trade(_Base):
     created_at: str
 
 
+class Pagination(_Base):
+    limit: int | None = None
+    order: str | None = None
+    starting_after: int | None = None
+    ending_before: int | None = None
+
+
+class TradeList(_Base):
+    pagination: Pagination | None = None
+    data: list[Trade] = Field(default_factory=list)
+
+
+class Candlestick(_Base):
+    """One Coincheck chart candle."""
+    open_time: int
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+
+
 class Orderbook(_Base):
     asks: list[list[Decimal]]
     bids: list[list[Decimal]]

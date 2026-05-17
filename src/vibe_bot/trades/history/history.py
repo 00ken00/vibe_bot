@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 
 from vibe_bot.bitbank import PublicClient as BitbankPublicClient
 from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
+from vibe_bot.coincheck import PublicClient as CoincheckPublicClient
 from vibe_bot.gmo import PublicClient as GmoPublicClient
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -29,7 +30,10 @@ class PairPreset:
 
 PAIR_PRESETS: dict[PairName, PairPreset] = {
     "bitbank_bitflyer": PairPreset("bitbank", "btc_jpy", "bitFlyer", "FX_BTC_JPY"),
+    "bitbank_coincheck": PairPreset("bitbank", "btc_jpy", "coincheck", "btc_jpy"),
     "bitbank_gmo": PairPreset("bitbank", "btc_jpy", "GMO", "BTC"),
+    "coincheck_bitflyer": PairPreset("coincheck", "btc_jpy", "bitFlyer", "FX_BTC_JPY"),
+    "coincheck_gmo": PairPreset("coincheck", "btc_jpy", "GMO", "BTC"),
     "gmo_bitflyer": PairPreset("GMO", "BTC_JPY", "bitFlyer", "FX_BTC_JPY"),
 }
 
@@ -400,6 +404,15 @@ async def _fetch_exchange_closes(
                 start=start,
                 end=end,
             )
+    if exchange == "coincheck":
+        async with CoincheckPublicClient() as client:
+            return await fetch_coincheck_closes(
+                client,
+                pair=symbol,
+                candle_minutes=candle_minutes,
+                start=start,
+                end=end,
+            )
     raise ValueError(f"unsupported exchange: {exchange}")
 
 
@@ -441,6 +454,23 @@ async def fetch_gmo_closes(
             closes[_parse_gmo_open_time_ms(row.open_time)] = row.close
         current += timedelta(days=1)
     return closes
+
+
+async def fetch_coincheck_closes(
+    client: CoincheckPublicClient,
+    *,
+    pair: str,
+    candle_minutes: int,
+    start: datetime,
+    end: datetime,
+) -> dict[int, Decimal]:
+    candles = await client.candlesticks(
+        pair,
+        candle_minutes=candle_minutes,
+        start=start,
+        end=end,
+    )
+    return {candle.open_time: candle.close for candle in candles}
 
 
 async def fetch_bitflyer_closes(
