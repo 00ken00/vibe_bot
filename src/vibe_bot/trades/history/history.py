@@ -365,8 +365,8 @@ def cli() -> go.Figure:
 def validate_config(days: int, candle_minutes: int) -> None:
     if days <= 0:
         raise ValueError("days must be positive")
-    if candle_minutes not in (1, 5, 15, 30):
-        raise ValueError("candle_minutes must be one of 1, 5, 15, 30")
+    if candle_minutes not in (1, 5, 15, 30, 60):
+        raise ValueError("candle_minutes must be one of 1, 5, 15, 30, 60")
 
 
 async def _fetch_exchange_closes(
@@ -424,7 +424,7 @@ async def fetch_bitbank_closes(
     start: datetime,
     end: datetime,
 ) -> dict[int, Decimal]:
-    candle_type = f"{candle_minutes}min"
+    candle_type = _bitbank_candle_type(candle_minutes)
     closes: dict[int, Decimal] = {}
     current = start.date()
     while current <= end.date():
@@ -445,7 +445,7 @@ async def fetch_gmo_closes(
     start: datetime,
     end: datetime,
 ) -> dict[int, Decimal]:
-    interval = f"{candle_minutes}min"
+    interval = _gmo_kline_interval(candle_minutes)
     closes: dict[int, Decimal] = {}
     current = start.date()
     while current <= end.date():
@@ -480,6 +480,15 @@ async def fetch_bitflyer_closes(
     candle_minutes: int,
     start_ms: int,
 ) -> dict[int, Decimal]:
+    if candle_minutes == 60:
+        half_hour_closes = await fetch_bitflyer_closes(
+            client,
+            product_code=product_code,
+            candle_minutes=30,
+            start_ms=start_ms,
+        )
+        return _aggregate_closes_to_hour(half_hour_closes)
+
     closes: dict[int, Decimal] = {}
     before: int | None = None
     last_oldest: int | None = None
@@ -515,6 +524,31 @@ def _parse_gmo_open_time_ms(value: str) -> int:
     return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000)
 
 
+def _bitbank_candle_type(candle_minutes: int) -> str:
+    if candle_minutes == 60:
+        return "1hour"
+    return f"{candle_minutes}min"
+
+
+def _gmo_kline_interval(candle_minutes: int) -> str:
+    if candle_minutes == 60:
+        return "1hour"
+    return f"{candle_minutes}min"
+
+
+def _aggregate_closes_to_hour(closes: dict[int, Decimal]) -> dict[int, Decimal]:
+    buckets: dict[int, tuple[int, Decimal]] = {}
+    for timestamp, close in sorted(closes.items()):
+        hour = datetime.fromtimestamp(timestamp / 1000, tz=JST).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        bucket = int(hour.timestamp() * 1000)
+        buckets[bucket] = (timestamp, close)
+    return {bucket: close for bucket, (_, close) in buckets.items()}
+
+
 def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
     timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=JST)
     boundary_hour = 21 if timestamp.hour >= 21 else 9
@@ -528,6 +562,7 @@ def __main__():
 
     left_exchange, left_symbol = "bitbank", "btc_jpy"
     left_exchange, left_symbol = "GMO", "BTC_JPY"
+    left_exchange, left_symbol = "coincheck", "btc_jpy"
     right_exchange, right_symbol = "GMO", "BTC_JPY"
     right_exchange, right_symbol = "bitFlyer", "FX_BTC_JPY"
     right_exchange, right_symbol = "coincheck", "btc_jpy"
@@ -537,6 +572,6 @@ def __main__():
         right_exchange=right_exchange,
         right_symbol=right_symbol,
         days=5,
-        candle_minutes=5,
+        candle_minutes=60,
+        # candle_minutes=5,
     )
-
