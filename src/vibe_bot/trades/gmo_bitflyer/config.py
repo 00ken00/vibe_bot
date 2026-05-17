@@ -36,8 +36,8 @@ class BotConfig:
     bitflyer_maintenance_end_jst: str = "04:12:30"
     dry_run: bool = True
     web_host: str = "0.0.0.0"
-    web_port: int = 8775
-    ws_port: int = 8776
+    web_port: int = 8765
+    ws_port: int = 8766
     monitor_update_interval: float = 1.0
     log_dir: Path = Path("logs/trades/gmo_bitflyer_arbitrage")
 
@@ -96,8 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bitflyer-maintenance-start-jst", default="03:59:30")
     parser.add_argument("--bitflyer-maintenance-end-jst", default="04:12:30")
     parser.add_argument("--web-host", default="0.0.0.0")
-    parser.add_argument("--web-port", type=int, default=8775)
-    parser.add_argument("--ws-port", type=int, default=8776)
+    parser.add_argument("--web-port", type=int, default=8765)
+    parser.add_argument("--ws-port", type=int, default=8766)
     parser.add_argument(
         "--monitor-update-interval",
         type=float,
