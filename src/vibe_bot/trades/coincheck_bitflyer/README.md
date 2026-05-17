@@ -1,0 +1,94 @@
+# Coincheck / bitFlyer Arbitrage
+
+Standalone arbitrage bot copied from the `gmo_bitflyer` structure and adapted
+for Coincheck spot plus bitFlyer hedge execution.
+
+The bot:
+
+- Maintains Coincheck and bitFlyer order books.
+- Computes executable VWAP spreads for the configured `--order-size`.
+- Places a slippage-capped Coincheck limit order first.
+- Hedges the filled Coincheck amount on bitFlyer using a market IOC order.
+- Cancels any unfilled Coincheck limit remainder after the execution poll.
+
+## Run
+
+Dry run:
+
+```bash
+python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage
+```
+
+Live:
+
+```bash
+python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage --live
+```
+
+The web monitor defaults to:
+
+```text
+http://127.0.0.1:8765/
+```
+
+Override ports if another bot is already using them:
+
+```bash
+python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage \
+  --web-port 8785 \
+  --ws-port 8786
+```
+
+## Credentials
+
+Live mode requires:
+
+```text
+COINCHECK_API_KEY
+COINCHECK_API_SECRET
+BITFLYER_API_KEY
+BITFLYER_API_SECRET
+```
+
+The entry point loads `.env` from the repo root.
+
+## Spread Definitions
+
+`BUY` action:
+
+```text
+buy_price = coincheck_ask_vwap - bitflyer_bid_vwap
+```
+
+This buys Coincheck and sells bitFlyer.
+
+`SELL` action:
+
+```text
+sell_price = coincheck_bid_vwap - bitflyer_ask_vwap
+```
+
+This sells Coincheck and buys bitFlyer.
+
+The trend filter uses:
+
+```text
+mid_spread = Coincheck mid price - bitFlyer mid price
+```
+
+## Execution Notes
+
+Coincheck does not expose the same FAK limit order behavior as GMO. The bot
+therefore places an aggressive limit order, polls recent Coincheck transactions
+for fills, and cancels the remaining order if the requested size was not fully
+filled.
+
+bitFlyer hedging uses:
+
+```text
+MARKET IOC
+```
+
+The bot records Coincheck order success rate and bitFlyer average hedge
+slippage over the most recent 20 order attempts, and shows both metrics in the
+web app.

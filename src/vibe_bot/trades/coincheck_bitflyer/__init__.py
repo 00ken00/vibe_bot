@@ -1,0 +1,1 @@
+"""Coincheck / bitFlyer arbitrage tools."""
