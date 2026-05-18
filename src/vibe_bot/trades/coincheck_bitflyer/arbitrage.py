@@ -98,12 +98,11 @@ class ArbitrageTrader:
         self._shutdown_started = False
 
     async def run(self, stop: asyncio.Event) -> None:
-        if not self.config.dry_run:
-            self._coincheck_private = CoincheckPrivateClient()
-            self._bf_private = BitflyerPrivateClient()
         try:
             if not self.config.dry_run:
                 try:
+                    self._coincheck_private = CoincheckPrivateClient()
+                    self._bf_private = BitflyerPrivateClient()
                     await self._initialize_live_position()
                 except Exception as exc:
                     self.state.last_error = f"trader initialization failed: {exc}"
