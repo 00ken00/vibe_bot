@@ -457,7 +457,17 @@ function renderGates() {{
   }}
   const target = c.target;
   const reason = c.reason || "--";
-  setGate("gateDecision", c.passed ? "pass" : "block", reason);
+  const decisionStatus = c.passed ? "pass" : reason === "waiting_for_quotes" ? "pending" : "block";
+  let decisionDetail = reason;
+  if (reason === "waiting_for_quotes") {{
+    const missing = Object.entries(c.details || {{}})
+      .filter(([, ok]) => ok === false || ok == null)
+      .map(([name]) => name);
+    decisionDetail = missing.length ? `missing ${{missing.join(", ")}}` : reason;
+  }} else if (reason === "trader_initialization_failed") {{
+    decisionDetail = (c.details && c.details.error) || reason;
+  }}
+  setGate("gateDecision", decisionStatus, decisionDetail);
   setGate("gateStage", target ? "pass" : "block",
     target ? `${{target.action}} stage ${{target.stage_index}} trigger ${{money(target.trigger_price)}}` : "no candidate");
   if (reason === "filter_warming_up") {{

@@ -103,7 +103,27 @@ class ArbitrageTrader:
             self._bf_private = BitflyerPrivateClient()
         try:
             if not self.config.dry_run:
-                await self._initialize_live_position()
+                try:
+                    await self._initialize_live_position()
+                except Exception as exc:
+                    self.state.last_error = f"trader initialization failed: {exc}"
+                    self.state.last_trade_condition = TradeCondition(
+                        False,
+                        "trader_initialization_failed",
+                        details={"error": str(exc)},
+                    )
+                    self.state.set_action(
+                        BotAction.BLOCKED,
+                        event_summary(
+                            "trader_initialization_failed",
+                            error=str(exc),
+                        ),
+                    )
+                    self.logger.event("error", message=self.state.last_error)
+                    LOGGER.exception("trader initialization failed")
+                    while not stop.is_set():
+                        await asyncio.sleep(self.config.update_interval)
+                    return
             self.state.stage_status = self._stage_status()
             while not stop.is_set():
                 try:
@@ -133,10 +153,20 @@ class ArbitrageTrader:
     async def _tick(self) -> None:
         quote = self.state.quote
         if not quote.ready:
+            self.state.last_trade_condition = TradeCondition(
+                False,
+                "waiting_for_quotes",
+                details=self._quote_ready_details(),
+            )
             self.state.set_action(BotAction.WAITING_FOR_QUOTES, "quote.ready=false")
             return
         raw_spread = quote.mid_spread
         if raw_spread is None:
+            self.state.last_trade_condition = TradeCondition(
+                False,
+                "waiting_for_quotes",
+                details={"mid_spread": None},
+            )
             self.state.set_action(BotAction.WAITING_FOR_QUOTES, "mid_spread=None")
             return
         self.state.filter = self.filter.update(raw_spread)
@@ -161,6 +191,19 @@ class ArbitrageTrader:
             return
         assert condition.target is not None
         await self._execute_target(condition.target)
+
+    def _quote_ready_details(self) -> dict[str, bool]:
+        quote = self.state.quote
+        return {
+            "coincheck_bid": quote.coincheck_bid is not None,
+            "coincheck_ask": quote.coincheck_ask is not None,
+            "coincheck_bid_vwap": quote.coincheck_bid_vwap is not None,
+            "coincheck_ask_vwap": quote.coincheck_ask_vwap is not None,
+            "bitflyer_bid": quote.bitflyer_bid is not None,
+            "bitflyer_ask": quote.bitflyer_ask is not None,
+            "bitflyer_bid_vwap": quote.bitflyer_bid_vwap is not None,
+            "bitflyer_ask_vwap": quote.bitflyer_ask_vwap is not None,
+        }
 
     def _check_trade_condition(self) -> TradeCondition:
         if self._in_bitflyer_maintenance_guard():
