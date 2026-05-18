@@ -565,6 +565,9 @@ class ArbitrageTrader:
             self.state.record_coincheck_order_metric(
                 attempted_size=target.amount,
                 filled_size=target.amount,
+                expected_price=target.coincheck_expected_price,
+                average_price=target.coincheck_expected_price,
+                slippage_jpy_per_btc=Decimal("0"),
                 order_id="DRY-RUN",
             )
             self.state.record_bitflyer_order_metric(
@@ -675,6 +678,9 @@ class ArbitrageTrader:
             self.state.record_coincheck_order_metric(
                 attempted_size=target.amount,
                 filled_size=Decimal("0"),
+                expected_price=target.coincheck_expected_price,
+                average_price=None,
+                slippage_jpy_per_btc=Decimal("0"),
             )
             raise
         order_ids.append(order_id)
@@ -689,6 +695,15 @@ class ArbitrageTrader:
         self.state.record_coincheck_order_metric(
             attempted_size=target.amount,
             filled_size=amount,
+            expected_price=target.coincheck_expected_price,
+            average_price=price if amount > 0 else None,
+            slippage_jpy_per_btc=self._coincheck_slippage_jpy_per_btc(
+                target.coincheck_side,
+                target.coincheck_expected_price,
+                price,
+            )
+            if amount > 0
+            else Decimal("0"),
             order_id=order_id,
         )
         if amount <= 0:
@@ -753,6 +768,13 @@ class ArbitrageTrader:
         self, side: str, expected_price: Decimal, average_price: Decimal
     ) -> Decimal:
         if side == "BUY":
+            return average_price - expected_price
+        return expected_price - average_price
+
+    def _coincheck_slippage_jpy_per_btc(
+        self, side: str, expected_price: Decimal, average_price: Decimal
+    ) -> Decimal:
+        if side.lower() == "buy":
             return average_price - expected_price
         return expected_price - average_price
 

@@ -128,6 +128,9 @@ class ActionHistoryEntry:
 class CoincheckOrderMetric:
     attempted_size: Decimal
     filled_size: Decimal
+    expected_price: Decimal | None = None
+    average_price: Decimal | None = None
+    slippage_jpy_per_btc: Decimal | None = None
     order_id: int | str | None = None
 
 
@@ -202,17 +205,34 @@ class BotState:
             return None
         return sum(slippages, Decimal("0")) / Decimal(len(slippages))
 
+    @property
+    def coincheck_average_slippage_jpy_per_btc(self) -> Decimal | None:
+        slippages = [
+            entry.slippage_jpy_per_btc
+            for entry in self.coincheck_order_metrics
+            if entry.slippage_jpy_per_btc is not None
+        ]
+        if not slippages:
+            return None
+        return sum(slippages, Decimal("0")) / Decimal(len(slippages))
+
     def record_coincheck_order_metric(
         self,
         *,
         attempted_size: Decimal,
         filled_size: Decimal,
+        expected_price: Decimal | None = None,
+        average_price: Decimal | None = None,
+        slippage_jpy_per_btc: Decimal | None = None,
         order_id: int | str | None = None,
     ) -> None:
         self.coincheck_order_metrics.append(
             CoincheckOrderMetric(
                 attempted_size=attempted_size,
                 filled_size=filled_size,
+                expected_price=expected_price,
+                average_price=average_price,
+                slippage_jpy_per_btc=slippage_jpy_per_btc,
                 order_id=order_id,
             )
         )

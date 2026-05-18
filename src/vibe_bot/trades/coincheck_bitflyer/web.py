@@ -98,6 +98,9 @@ class WebApp:
             "filled_base": self.state.filled_base,
             "trade_count": self.state.trade_count,
             "coincheck_order_success_rate": self.state.coincheck_order_success_rate,
+            "coincheck_average_slippage_jpy_per_btc": (
+                self.state.coincheck_average_slippage_jpy_per_btc
+            ),
             "coincheck_order_metric_count": len(self.state.coincheck_order_metrics),
             "bitflyer_average_slippage_jpy_per_btc": (
                 self.state.bitflyer_average_slippage_jpy_per_btc
@@ -298,6 +301,7 @@ td {{ font-size: 13px; overflow-wrap: anywhere; }}
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
     <div class="metric"><div class="label">Trades</div><div id="trades" class="value">--</div></div>
     <div class="metric"><div class="label">Coincheck Order Success</div><div id="coincheckOrderSuccess" class="value">--</div><div id="coincheckOrderSuccessDetail" class="label">recent 0 / 20</div></div>
+    <div class="metric"><div class="label">Coincheck Avg Slippage/BTC</div><div id="coincheckSlippage" class="value">--</div><div id="coincheckSlippageDetail" class="label">recent 0 / 20</div></div>
     <div class="metric"><div class="label">bitFlyer Avg Slippage/BTC</div><div id="bitflyerSlippage" class="value">--</div><div id="bitflyerSlippageDetail" class="label">recent 0 / 20</div></div>
     <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
   </section>
@@ -413,6 +417,8 @@ function render() {{
   setText("trades", latest.trade_count ?? "--");
   setText("coincheckOrderSuccess", pct(latest.coincheck_order_success_rate));
   setText("coincheckOrderSuccessDetail", `recent ${{latest.coincheck_order_metric_count ?? 0}} / 20`);
+  setText("coincheckSlippage", money(latest.coincheck_average_slippage_jpy_per_btc));
+  setText("coincheckSlippageDetail", `recent ${{latest.coincheck_order_metric_count ?? 0}} / 20`);
   setText("bitflyerSlippage", money(latest.bitflyer_average_slippage_jpy_per_btc));
   setText("bitflyerSlippageDetail", `recent ${{latest.bitflyer_order_metric_count ?? 0}} / 20`);
   setText("action", latest.last_action || "--");
