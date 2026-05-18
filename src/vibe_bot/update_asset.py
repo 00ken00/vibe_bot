@@ -19,6 +19,7 @@ from vibe_bot.bitbank.models import MarginPosition
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.coincheck import PrivateClient as CoincheckPrivateClient
 from vibe_bot.gmo import PrivateClient as GmoPrivateClient
+from vibe_bot.gmo.models import Asset as GmoAsset
 
 
 TRACKED_RATES = ("btc_jpy", "eth_jpy", "xrp_jpy", "sol_jpy")
@@ -89,15 +90,7 @@ async def fetch_asset_snapshot() -> AssetSnapshot:
         return AssetSnapshot(
             timestamp=datetime.now().replace(microsecond=0).isoformat(sep=" "),
             rates=rates,
-            gmo_total_asset=sum(
-                (
-                    asset.amount
-                    if asset.symbol == "JPY"
-                    else asset.amount * asset.conversion_rate
-                )
-                for asset in gmo_assets
-                if asset.amount != 0
-            ),
+            gmo_total_asset=gmo_total_asset(gmo_assets),
             bitbank_total_asset=bitbank_total_asset(
                 bitbank_assets.assets,
                 bitbank_positions.positions,
@@ -121,6 +114,21 @@ def ticker_mid(
     if last is not None:
         return last
     raise ValueError("ticker has neither bid/ask nor last price")
+
+
+def gmo_total_asset(assets: list[GmoAsset]) -> Decimal:
+    return sum(
+        (
+            (
+                asset.amount
+                if asset.symbol == "JPY"
+                else asset.amount * asset.conversion_rate
+            )
+            for asset in assets
+            if asset.amount != 0
+        ),
+        Decimal("0"),
+    )
 
 
 def bitbank_total_asset(
