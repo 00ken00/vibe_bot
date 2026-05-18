@@ -15,9 +15,13 @@ from dotenv import load_dotenv
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
 from vibe_bot.bitbank import PublicClient as BitbankPublicClient
 from vibe_bot.bitbank.models import Asset as BitbankAsset
+from vibe_bot.bitbank.models import Assets as BitbankAssets
+from vibe_bot.bitbank.models import MarginPositions
 from vibe_bot.bitbank.models import MarginPosition
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
+from vibe_bot.bitflyer.models import Collateral as BitflyerCollateral
 from vibe_bot.coincheck import PrivateClient as CoincheckPrivateClient
+from vibe_bot.coincheck.models import Balance as CoincheckBalance
 from vibe_bot.gmo import PrivateClient as GmoPrivateClient
 from vibe_bot.gmo.models import Asset as GmoAsset
 
@@ -60,6 +64,13 @@ class AssetSnapshot:
 
 
 async def fetch_asset_snapshot() -> AssetSnapshot:
+    rates: dict[str, Decimal] | None = None
+    gmo_assets: list[GmoAsset] | None = None
+    bitbank_assets: BitbankAssets | None = None
+    bitbank_positions: MarginPositions | None = None
+    coincheck_balance: CoincheckBalance | None = None
+    bitflyer_collateral: BitflyerCollateral | None = None
+
     async with AsyncExitStack() as stack:
         bitbank_public = await stack.enter_async_context(BitbankPublicClient())
         bitbank_private = await stack.enter_async_context(BitbankPrivateClient())
@@ -87,21 +98,31 @@ async def fetch_asset_snapshot() -> AssetSnapshot:
         coincheck_balance = await coincheck_balance_task
         bitflyer_collateral = await bitflyer_collateral_task
 
-        return AssetSnapshot(
-            timestamp=datetime.now().replace(microsecond=0).isoformat(sep=" "),
-            rates=rates,
-            gmo_total_asset=gmo_total_asset(gmo_assets),
-            bitbank_total_asset=bitbank_total_asset(
-                bitbank_assets.assets,
-                bitbank_positions.positions,
-                rates,
-            ),
-            coincheck_total_asset=coincheck_total_asset(
-                coincheck_balance.balances,
-                rates,
-            ),
-            bitflyer_cfd_asset=bitflyer_collateral.collateral,
-        )
+    if (
+        rates is None
+        or gmo_assets is None
+        or bitbank_assets is None
+        or bitbank_positions is None
+        or coincheck_balance is None
+        or bitflyer_collateral is None
+    ):
+        raise RuntimeError("asset snapshot inputs were not fetched")
+
+    return AssetSnapshot(
+        timestamp=datetime.now().replace(microsecond=0).isoformat(sep=" "),
+        rates=rates,
+        gmo_total_asset=gmo_total_asset(gmo_assets),
+        bitbank_total_asset=bitbank_total_asset(
+            bitbank_assets.assets,
+            bitbank_positions.positions,
+            rates,
+        ),
+        coincheck_total_asset=coincheck_total_asset(
+            coincheck_balance.balances,
+            rates,
+        ),
+        bitflyer_cfd_asset=bitflyer_collateral.collateral,
+    )
 
 
 def ticker_mid(
