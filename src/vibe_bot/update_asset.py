@@ -86,26 +86,29 @@ async def fetch_asset_snapshot() -> AssetSnapshot:
         coincheck_balance = await coincheck_balance_task
         bitflyer_collateral = await bitflyer_collateral_task
 
-    return AssetSnapshot(
-        timestamp=datetime.now().replace(microsecond=0).isoformat(sep=" "),
-        rates=rates,
-        gmo_total_asset=sum(
-            (
-                asset.amount
-                if asset.symbol == "JPY"
-                else asset.amount * asset.conversion_rate
-            )
-            for asset in gmo_assets
-            if asset.amount != 0
-        ),
-        bitbank_total_asset=bitbank_total_asset(
-            bitbank_assets.assets,
-            bitbank_positions.positions,
-            rates,
-        ),
-        coincheck_total_asset=coincheck_total_asset(coincheck_balance.balances, rates),
-        bitflyer_cfd_asset=bitflyer_collateral.collateral,
-    )
+        return AssetSnapshot(
+            timestamp=datetime.now().replace(microsecond=0).isoformat(sep=" "),
+            rates=rates,
+            gmo_total_asset=sum(
+                (
+                    asset.amount
+                    if asset.symbol == "JPY"
+                    else asset.amount * asset.conversion_rate
+                )
+                for asset in gmo_assets
+                if asset.amount != 0
+            ),
+            bitbank_total_asset=bitbank_total_asset(
+                bitbank_assets.assets,
+                bitbank_positions.positions,
+                rates,
+            ),
+            coincheck_total_asset=coincheck_total_asset(
+                coincheck_balance.balances,
+                rates,
+            ),
+            bitflyer_cfd_asset=bitflyer_collateral.collateral,
+        )
 
 
 def ticker_mid(
