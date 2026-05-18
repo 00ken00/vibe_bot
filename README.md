@@ -41,6 +41,12 @@ Pull the latest code on the remote VM from your local shell:
 gcloud compute ssh veryshj123@vibe-bot -- -t 'cd vibe_bot && git pull'
 ```
 
+Update the remote `.env` from your local `.env`:
+
+```bash
+gcloud compute scp .env veryshj123@vibe-bot:vibe_bot/.env
+```
+
 The image does not copy this repository. It only copies `requirements-dev.lock`
 during build, installs Python/Jupyter dependencies from that lock file, and uses
 `PYTHONPATH=/workspace/vibe_bot/src`.
