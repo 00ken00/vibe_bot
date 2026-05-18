@@ -49,13 +49,13 @@ class SpreadFilter:
     def __init__(self, config: BotConfig) -> None:
         self.config = config
         self.trend: Decimal | None = None
-        self.residuals: deque[Decimal] = deque(maxlen=config.noise_window)
+        self.residuals: deque[Decimal] = deque(maxlen=config.gate_noise_window)
 
     def update(self, raw_spread: Decimal) -> FilterSnapshot:
         if self.trend is None:
             self.trend = raw_spread
         else:
-            alpha = self.config.ema_alpha
+            alpha = self.config.gate_ema_alpha
             self.trend = alpha * raw_spread + (Decimal("1") - alpha) * self.trend
         residual = raw_spread - self.trend
         self.residuals.append(residual)
@@ -63,8 +63,8 @@ class SpreadFilter:
         required = None
         if noise is not None:
             required = max(
-                self.config.min_extra_edge_jpy,
-                noise * self.config.noise_multiplier,
+                self.config.gate_min_extra_edge_jpy,
+                noise * self.config.gate_noise_multiplier,
             )
         return FilterSnapshot(
             samples=len(self.residuals),
@@ -165,7 +165,7 @@ class ArbitrageTrader:
     def _check_trade_condition(self) -> TradeCondition:
         if self._in_bitflyer_maintenance_guard():
             return TradeCondition(False, "bitflyer_maintenance_guard")
-        if time.time() - self._last_trade_at < self.config.entry_cooldown_seconds:
+        if time.time() - self._last_trade_at < self.config.gate_entry_cooldown_seconds:
             return TradeCondition(
                 False,
                 "entry_cooldown",
@@ -181,7 +181,7 @@ class ArbitrageTrader:
         if (
             snapshot.trend_spread is None
             or snapshot.required_extra_edge is None
-            or snapshot.samples < self.config.min_filter_samples
+            or snapshot.samples < self.config.gate_min_filter_samples
         ):
             self._reset_persistence()
             return TradeCondition(
@@ -190,7 +190,7 @@ class ArbitrageTrader:
                 target=target,
                 details={
                     "samples": snapshot.samples,
-                    "min_filter_samples": self.config.min_filter_samples,
+                    "gate_min_filter_samples": self.config.gate_min_filter_samples,
                 },
             )
 
@@ -234,7 +234,7 @@ class ArbitrageTrader:
                 target=target,
                 details={
                     "action": target.action,
-                    "required_seconds": self.config.persistence_seconds,
+                    "required_seconds": self.config.gate_persistence_seconds,
                     "candidate_since": self._candidate_since,
                 },
             )
@@ -299,8 +299,8 @@ class ArbitrageTrader:
                 )
             return None
 
-        buy_open_trigger = self.config.threshold_offset_jpy - self.config.threshold_jpy
-        sell_open_trigger = self.config.threshold_offset_jpy + self.config.threshold_jpy
+        buy_open_trigger = self.config.gate_threshold_offset_jpy - self.config.gate_threshold_jpy
+        sell_open_trigger = self.config.gate_threshold_offset_jpy + self.config.gate_threshold_jpy
         buy_edge = buy_open_trigger - buy_price
         sell_edge = sell_price - sell_open_trigger
         if buy_edge <= 0 and sell_edge <= 0:
@@ -327,7 +327,7 @@ class ArbitrageTrader:
             coincheck_expected = quote.coincheck_ask_vwap
             bitflyer_expected = quote.bitflyer_bid_vwap
             coincheck_limit = quantize_up(
-                coincheck_expected + self.config.max_slippage_jpy, self.config.tick_size
+                coincheck_expected + self.config.gate_max_slippage_jpy, self.config.tick_size
             )
             coincheck_side = "buy"
             bitflyer_side = "SELL"
@@ -337,7 +337,7 @@ class ArbitrageTrader:
             coincheck_expected = quote.coincheck_bid_vwap
             bitflyer_expected = quote.bitflyer_ask_vwap
             coincheck_limit = quantize_down(
-                coincheck_expected - self.config.max_slippage_jpy, self.config.tick_size
+                coincheck_expected - self.config.gate_max_slippage_jpy, self.config.tick_size
             )
             coincheck_side = "sell"
             bitflyer_side = "BUY"
@@ -369,10 +369,10 @@ class ArbitrageTrader:
         if key != self._candidate_key:
             self._candidate_key = key
             self._candidate_since = now
-        if self.config.persistence_seconds == 0:
+        if self.config.gate_persistence_seconds == 0:
             return True
         assert self._candidate_since is not None
-        return now - self._candidate_since >= self.config.persistence_seconds
+        return now - self._candidate_since >= self.config.gate_persistence_seconds
 
     def _reset_persistence(self) -> None:
         self._candidate_key = None
@@ -392,8 +392,8 @@ class ArbitrageTrader:
             if abs_position > 0
             else None
         )
-        threshold = self.config.threshold_jpy
-        offset = self.config.threshold_offset_jpy
+        threshold = self.config.gate_threshold_jpy
+        offset = self.config.gate_threshold_offset_jpy
         long_open_trigger = None
         short_open_trigger = None
         if can_open_next:
@@ -448,11 +448,11 @@ class ArbitrageTrader:
         return min(self.config.order_size, abs_position - lower_stage_position)
 
     def _in_bitflyer_maintenance_guard(self) -> bool:
-        if not self.config.bitflyer_maintenance_guard_enabled:
+        if not self.config.gate_bitflyer_maintenance_guard_enabled:
             return False
         now_seconds = _jst_time_seconds()
-        start_seconds = parse_hhmmss(self.config.bitflyer_maintenance_start_jst)
-        end_seconds = parse_hhmmss(self.config.bitflyer_maintenance_end_jst)
+        start_seconds = parse_hhmmss(self.config.gate_bitflyer_maintenance_start_jst)
+        end_seconds = parse_hhmmss(self.config.gate_bitflyer_maintenance_end_jst)
         if start_seconds <= end_seconds:
             return start_seconds <= now_seconds < end_seconds
         return now_seconds >= start_seconds or now_seconds < end_seconds

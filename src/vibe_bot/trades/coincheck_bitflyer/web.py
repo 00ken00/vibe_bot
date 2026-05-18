@@ -88,8 +88,8 @@ class WebApp:
             "timestamp": time.time(),
             "uptime_sec": round(uptime, 1),
             "dry_run": self.config.dry_run,
-            "threshold_jpy": self.config.threshold_jpy,
-            "threshold_offset_jpy": self.config.threshold_offset_jpy,
+            "gate_threshold_jpy": self.config.gate_threshold_jpy,
+            "gate_threshold_offset_jpy": self.config.gate_threshold_offset_jpy,
             "position": self.state.position,
             "coincheck_position": self.state.coincheck_position,
             "bitflyer_position": self.state.bitflyer_position,
@@ -316,8 +316,8 @@ td {{ font-size: 13px; overflow-wrap: anywhere; }}
       <span class="key"><span class="swatch" style="background:var(--buy)"></span>BUY price</span>
       <span class="key"><span class="swatch" style="background:var(--sell)"></span>SELL price</span>
       <span class="key"><span class="swatch" style="background:var(--trend)"></span>EMA trend</span>
-      <span class="key">threshold: {self.config.threshold_jpy} JPY</span>
-      <span class="key">offset: {self.config.threshold_offset_jpy} JPY</span>
+      <span class="key">threshold: {self.config.gate_threshold_jpy} JPY</span>
+      <span class="key">offset: {self.config.gate_threshold_offset_jpy} JPY</span>
     </div>
     <canvas id="chart" width="1400" height="520"></canvas>
   </section>
@@ -422,7 +422,7 @@ function render() {{
   setText("bfDepth", `${{money(q.bitflyer_bid_vwap)}} / ${{money(q.bitflyer_ask_vwap)}}`);
   setText("exchangePositions", `${{btc(latest.coincheck_position)}} / ${{btc(latest.bitflyer_position)}}`);
   setText("unhedged", btc(latest.unhedged_position));
-  setText("filterSamples", `${{f.samples ?? 0}} / {self.config.min_filter_samples}`);
+  setText("filterSamples", `${{f.samples ?? 0}} / {self.config.gate_min_filter_samples}`);
   setText("uptime", `${{Math.round(num(latest.uptime_sec || 0))}}s`);
   renderStage();
   renderGates();
@@ -461,8 +461,8 @@ function renderGates() {{
   setGate("gateStage", target ? "pass" : "block",
     target ? `${{target.action}} stage ${{target.stage_index}} trigger ${{money(target.trigger_price)}}` : "no candidate");
   if (reason === "filter_warming_up") {{
-    setGate("gateTrend", "pending", `samples ${{f.samples ?? 0}} / {self.config.min_filter_samples}`);
-    setGate("gateNoise", "pending", `samples ${{f.samples ?? 0}} / {self.config.min_filter_samples}`);
+    setGate("gateTrend", "pending", `samples ${{f.samples ?? 0}} / {self.config.gate_min_filter_samples}`);
+    setGate("gateNoise", "pending", `samples ${{f.samples ?? 0}} / {self.config.gate_min_filter_samples}`);
     setGate("gatePersistence", "pending", "--");
     setGate("gateSlippage", "pending", "--");
     return;
@@ -493,7 +493,7 @@ function renderGates() {{
   }}
   if (target) {{
     setGate("gatePersistence", reason === "persistence" ? "block" : "pass",
-      reason === "persistence" ? `requires {self.config.persistence_seconds}s` : `requires {self.config.persistence_seconds}s`);
+      reason === "persistence" ? `requires {self.config.gate_persistence_seconds}s` : `requires {self.config.gate_persistence_seconds}s`);
     setGate("gateSlippage", reason === "persistence" ? "pending" : "pass",
       `Coincheck ${{target.coincheck_side}} limit ${{money(target.coincheck_limit_price)}} / bitFlyer ${{target.bitflyer_side}} MARKET IOC`);
   }} else {{

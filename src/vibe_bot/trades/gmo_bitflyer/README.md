@@ -87,15 +87,15 @@ The bitFlyer maintenance guard blocks trading during the configured JST window.
 Parameters:
 
 ```text
---disable-bitflyer-maintenance-guard
---bitflyer-maintenance-start-jst 03:59:30
---bitflyer-maintenance-end-jst 04:12:30
+--disable-gate-bitflyer-maintenance-guard
+--gate-bitflyer-maintenance-start-jst 03:59:30
+--gate-bitflyer-maintenance-end-jst 04:12:30
 ```
 
 To disable this gate:
 
 ```bash
---disable-bitflyer-maintenance-guard
+--disable-gate-bitflyer-maintenance-guard
 ```
 
 Cooldown prevents immediate repeated entries after a trade attempt.
@@ -103,7 +103,7 @@ Cooldown prevents immediate repeated entries after a trade attempt.
 Parameter:
 
 ```text
---entry-cooldown-seconds 5.0
+--gate-entry-cooldown-seconds 5.0
 ```
 
 Larger values trade less frequently. Smaller values allow faster repeated
@@ -112,7 +112,7 @@ entries.
 To disable cooldown:
 
 ```bash
---entry-cooldown-seconds 0
+--gate-entry-cooldown-seconds 0
 ```
 
 ## 2. Stage Trigger
@@ -122,8 +122,8 @@ The stage trigger decides whether there is a candidate trade at all.
 Parameters:
 
 ```text
---threshold-jpy 1000
---threshold-offset-jpy 0
+--gate-threshold-jpy 1000
+--gate-threshold-offset-jpy 0
 --stage-size 0.001
 --max-stages 3
 --order-size 0.001
@@ -132,25 +132,25 @@ Parameters:
 When position is zero:
 
 ```text
-BUY trigger  = threshold_offset_jpy - threshold_jpy
-SELL trigger = threshold_offset_jpy + threshold_jpy
+BUY trigger  = gate_threshold_offset_jpy - gate_threshold_jpy
+SELL trigger = gate_threshold_offset_jpy + gate_threshold_jpy
 ```
 
-Example with `--threshold-offset-jpy 0 --threshold-jpy 1000`:
+Example with `--gate-threshold-offset-jpy 0 --gate-threshold-jpy 1000`:
 
 ```text
 BUY candidate  when buy_price  < -1000
 SELL candidate when sell_price >  1000
 ```
 
-For later stages, the trigger moves by another `threshold_jpy` per stage. With a
+For later stages, the trigger moves by another `gate_threshold_jpy` per stage. With a
 long GMO position, the next BUY-open trigger becomes more negative. With a short
 GMO position, the next SELL-open trigger becomes more positive.
 
 How each parameter affects the condition:
 
 ```text
---threshold-jpy
+--gate-threshold-jpy
 ```
 
 Higher means fewer entries and wider spacing between stages. Lower means more
@@ -158,7 +158,7 @@ entries and tighter stage spacing. It must be positive, so this gate cannot be
 fully disabled by setting it to zero.
 
 ```text
---threshold-offset-jpy
+--gate-threshold-offset-jpy
 ```
 
 Moves the whole trigger ladder. Use this when the GMO / bitFlyer spread has a
@@ -186,7 +186,7 @@ Maximum size per trade attempt. The actual stage amount is the smaller of
 To make this gate very permissive:
 
 ```bash
---threshold-jpy 1
+--gate-threshold-jpy 1
 ```
 
 There is no CLI setting that truly disables stage triggers.
@@ -199,7 +199,7 @@ trade.
 Parameter:
 
 ```text
---min-filter-samples 20
+--gate-min-filter-samples 20
 ```
 
 Higher values wait longer after startup or reconnect before trading. Lower
@@ -208,7 +208,7 @@ values allow earlier trading with less stable estimates.
 To minimize warmup:
 
 ```bash
---min-filter-samples 1
+--gate-min-filter-samples 1
 ```
 
 This does not disable the trend or noise gates by itself; it only reduces the
@@ -221,7 +221,7 @@ The bot calculates an EMA of `mid_spread`.
 Parameter:
 
 ```text
---ema-alpha 0.08
+--gate-ema-alpha 0.08
 ```
 
 For a BUY candidate, the trend must be at or below the BUY trigger:
@@ -236,7 +236,7 @@ For a SELL candidate, the trend must be at or above the SELL trigger:
 trend_spread >= trigger_price
 ```
 
-How `--ema-alpha` affects the condition:
+How `--gate-ema-alpha` affects the condition:
 
 ```text
 lower alpha = slower trend, more resistant to noisy spikes
@@ -246,7 +246,7 @@ higher alpha = faster trend, easier for short-term moves to affect approval
 To make the trend gate as close to instantaneous as the code allows:
 
 ```bash
---ema-alpha 1
+--gate-ema-alpha 1
 ```
 
 That makes `trend_spread` equal the latest `mid_spread`. This effectively removes
@@ -259,13 +259,13 @@ The bot tracks residual noise:
 
 ```text
 residual = raw_mid_spread - ema_trend_spread
-residual_noise = RMS(residuals over noise_window)
+residual_noise = RMS(residuals over gate_noise_window)
 ```
 
 Then it requires extra edge:
 
 ```text
-required_extra_edge = max(min_extra_edge_jpy, residual_noise * noise_multiplier)
+required_extra_edge = max(gate_min_extra_edge_jpy, residual_noise * gate_noise_multiplier)
 ```
 
 For BUY:
@@ -285,29 +285,29 @@ trade only if edge >= required_extra_edge
 Parameters:
 
 ```text
---noise-window 60
---noise-multiplier 2.0
---min-extra-edge-jpy 0
+--gate-noise-window 60
+--gate-noise-multiplier 2.0
+--gate-min-extra-edge-jpy 0
 ```
 
 How each parameter affects the condition:
 
 ```text
---noise-window
+--gate-noise-window
 ```
 
 Higher values smooth the noise estimate over more samples. Lower values react
 faster to current noise. It must be at least 2.
 
 ```text
---noise-multiplier
+--gate-noise-multiplier
 ```
 
 Higher values demand more extra edge when the spread is noisy. Lower values make
 the gate easier to pass.
 
 ```text
---min-extra-edge-jpy
+--gate-min-extra-edge-jpy
 ```
 
 Always requires at least this much extra edge, even when measured noise is low.
@@ -315,7 +315,7 @@ Always requires at least this much extra edge, even when measured noise is low.
 To disable the volatility part of the noise buffer:
 
 ```bash
---noise-multiplier 0 --min-extra-edge-jpy 0
+--gate-noise-multiplier 0 --gate-min-extra-edge-jpy 0
 ```
 
 The comparison still exists, but `required_extra_edge` becomes zero once the
@@ -333,7 +333,7 @@ action, stage_index, trigger_price, amount
 Parameter:
 
 ```text
---persistence-seconds 2.0
+--gate-persistence-seconds 2.0
 ```
 
 Higher values reject more short-lived spikes. Lower values react faster.
@@ -341,7 +341,7 @@ Higher values reject more short-lived spikes. Lower values react faster.
 To disable persistence:
 
 ```bash
---persistence-seconds 0
+--gate-persistence-seconds 0
 ```
 
 ## 7. GMO Slippage Cap and bitFlyer Market Hedge
@@ -357,24 +357,24 @@ bitFlyer: MARKET IOC
 Parameter:
 
 ```text
---max-slippage-jpy 500
+--gate-max-slippage-jpy 500
 ```
 
 For BUY:
 
 ```text
-GMO BUY limit       = gmo_ask_vwap + max_slippage_jpy
+GMO BUY limit       = gmo_ask_vwap + gate_max_slippage_jpy
 bitFlyer hedge      = MARKET IOC SELL
 ```
 
 For SELL:
 
 ```text
-GMO SELL limit      = gmo_bid_vwap - max_slippage_jpy
+GMO SELL limit      = gmo_bid_vwap - gate_max_slippage_jpy
 bitFlyer hedge      = MARKET IOC BUY
 ```
 
-`--max-slippage-jpy` only controls the GMO FAK limit price. Higher values
+`--gate-max-slippage-jpy` only controls the GMO FAK limit price. Higher values
 increase GMO fill probability but allow worse GMO execution. Lower values reduce
 GMO slippage risk but increase partial or missed GMO fills.
 
@@ -385,7 +385,7 @@ slippage.
 To make the GMO side strict:
 
 ```bash
---max-slippage-jpy 0
+--gate-max-slippage-jpy 0
 ```
 
 There is no CLI setting that changes the bitFlyer hedge back to limit order.
@@ -396,36 +396,36 @@ Conservative:
 
 ```bash
 python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
-  --threshold-jpy 1500 \
-  --ema-alpha 0.05 \
-  --noise-window 120 \
-  --noise-multiplier 2.5 \
-  --persistence-seconds 3 \
-  --max-slippage-jpy 300
+  --gate-threshold-jpy 1500 \
+  --gate-ema-alpha 0.05 \
+  --gate-noise-window 120 \
+  --gate-noise-multiplier 2.5 \
+  --gate-persistence-seconds 3 \
+  --gate-max-slippage-jpy 300
 ```
 
 Fast dry-run exploration:
 
 ```bash
 python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
-  --threshold-jpy 500 \
-  --ema-alpha 0.2 \
-  --noise-window 20 \
-  --noise-multiplier 1 \
-  --persistence-seconds 0.5
+  --gate-threshold-jpy 500 \
+  --gate-ema-alpha 0.2 \
+  --gate-noise-window 20 \
+  --gate-noise-multiplier 1 \
+  --gate-persistence-seconds 0.5
 ```
 
 Near-minimal filtering:
 
 ```bash
 python3 -m vibe_bot.trades.gmo_bitflyer.arbitrage \
-  --threshold-jpy 1 \
-  --ema-alpha 1 \
-  --min-filter-samples 1 \
-  --noise-multiplier 0 \
-  --min-extra-edge-jpy 0 \
-  --persistence-seconds 0 \
-  --entry-cooldown-seconds 0
+  --gate-threshold-jpy 1 \
+  --gate-ema-alpha 1 \
+  --gate-min-filter-samples 1 \
+  --gate-noise-multiplier 0 \
+  --gate-min-extra-edge-jpy 0 \
+  --gate-persistence-seconds 0 \
+  --gate-entry-cooldown-seconds 0
 ```
 
 This still uses the stage trigger, a slippage-capped GMO FAK limit order, and a
