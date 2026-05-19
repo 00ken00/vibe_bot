@@ -102,6 +102,9 @@ class WebApp:
                 self.state.coincheck_average_slippage_jpy_per_btc
             ),
             "coincheck_order_metric_count": len(self.state.coincheck_order_metrics),
+            "coincheck_slippage_metric_count": len(
+                self.state.coincheck_slippage_metrics
+            ),
             "bitflyer_average_slippage_jpy_per_btc": (
                 self.state.bitflyer_average_slippage_jpy_per_btc
             ),
@@ -418,7 +421,7 @@ function render() {{
   setText("coincheckOrderSuccess", pct(latest.coincheck_order_success_rate));
   setText("coincheckOrderSuccessDetail", `recent ${{latest.coincheck_order_metric_count ?? 0}} / 20`);
   setText("coincheckSlippage", money(latest.coincheck_average_slippage_jpy_per_btc));
-  setText("coincheckSlippageDetail", `recent ${{latest.coincheck_order_metric_count ?? 0}} / 20`);
+  setText("coincheckSlippageDetail", `recent ${{latest.coincheck_slippage_metric_count ?? 0}} / 20`);
   setText("bitflyerSlippage", money(latest.bitflyer_average_slippage_jpy_per_btc));
   setText("bitflyerSlippageDetail", `recent ${{latest.bitflyer_order_metric_count ?? 0}} / 20`);
   setText("action", latest.last_action || "--");

@@ -139,8 +139,14 @@ class BitflyerOrderMetric:
     expected_price: Decimal
     average_price: Decimal | None
     filled_size: Decimal
-    slippage_jpy_per_btc: Decimal | None
+    slippage_jpy_per_btc: Decimal
     acceptance_id: str | None = None
+
+
+@dataclass
+class SlippageMetric:
+    filled_size: Decimal
+    slippage_jpy_per_btc: Decimal
 
 
 @dataclass
@@ -158,6 +164,7 @@ class BotState:
     last_action: BotAction = BotAction.IDLE
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
     coincheck_order_metrics: list[CoincheckOrderMetric] = field(default_factory=list)
+    coincheck_slippage_metrics: list[SlippageMetric] = field(default_factory=list)
     bitflyer_order_metrics: list[BitflyerOrderMetric] = field(default_factory=list)
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
@@ -196,47 +203,11 @@ class BotState:
 
     @property
     def bitflyer_average_slippage_jpy_per_btc(self) -> Decimal | None:
-        filled = sum(
-            (
-                entry.filled_size
-                for entry in self.bitflyer_order_metrics
-                if entry.slippage_jpy_per_btc is not None
-            ),
-            Decimal("0"),
-        )
-        if filled <= 0:
-            return None
-        total_slippage = sum(
-            (
-                entry.slippage_jpy_per_btc * entry.filled_size
-                for entry in self.bitflyer_order_metrics
-                if entry.slippage_jpy_per_btc is not None
-            ),
-            Decimal("0"),
-        )
-        return total_slippage / filled
+        return weighted_average_slippage(self.bitflyer_order_metrics)
 
     @property
     def coincheck_average_slippage_jpy_per_btc(self) -> Decimal | None:
-        filled = sum(
-            (
-                entry.filled_size
-                for entry in self.coincheck_order_metrics
-                if entry.slippage_jpy_per_btc is not None
-            ),
-            Decimal("0"),
-        )
-        if filled <= 0:
-            return None
-        total_slippage = sum(
-            (
-                entry.slippage_jpy_per_btc * entry.filled_size
-                for entry in self.coincheck_order_metrics
-                if entry.slippage_jpy_per_btc is not None
-            ),
-            Decimal("0"),
-        )
-        return total_slippage / filled
+        return weighted_average_slippage(self.coincheck_slippage_metrics)
 
     def record_coincheck_order_metric(
         self,
@@ -259,6 +230,14 @@ class BotState:
             )
         )
         del self.coincheck_order_metrics[:-20]
+        if filled_size > 0 and slippage_jpy_per_btc is not None:
+            self.coincheck_slippage_metrics.append(
+                SlippageMetric(
+                    filled_size=filled_size,
+                    slippage_jpy_per_btc=slippage_jpy_per_btc,
+                )
+            )
+            del self.coincheck_slippage_metrics[:-20]
 
     def record_bitflyer_order_metric(
         self,
@@ -269,13 +248,27 @@ class BotState:
         slippage_jpy_per_btc: Decimal | None,
         acceptance_id: str | None = None,
     ) -> None:
-        self.bitflyer_order_metrics.append(
-            BitflyerOrderMetric(
-                expected_price=expected_price,
-                average_price=average_price,
-                filled_size=filled_size,
-                slippage_jpy_per_btc=slippage_jpy_per_btc,
-                acceptance_id=acceptance_id,
+        if filled_size > 0 and slippage_jpy_per_btc is not None:
+            self.bitflyer_order_metrics.append(
+                BitflyerOrderMetric(
+                    expected_price=expected_price,
+                    average_price=average_price,
+                    filled_size=filled_size,
+                    slippage_jpy_per_btc=slippage_jpy_per_btc,
+                    acceptance_id=acceptance_id,
+                )
             )
-        )
-        del self.bitflyer_order_metrics[:-20]
+            del self.bitflyer_order_metrics[:-20]
+
+
+def weighted_average_slippage(
+    metrics: list[BitflyerOrderMetric] | list[SlippageMetric],
+) -> Decimal | None:
+    filled = sum((entry.filled_size for entry in metrics), Decimal("0"))
+    if filled <= 0:
+        return None
+    total_slippage = sum(
+        (entry.slippage_jpy_per_btc * entry.filled_size for entry in metrics),
+        Decimal("0"),
+    )
+    return total_slippage / filled

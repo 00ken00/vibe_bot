@@ -136,7 +136,7 @@ class BitflyerOrderMetric:
     expected_price: Decimal
     average_price: Decimal | None
     filled_size: Decimal
-    slippage_jpy_per_btc: Decimal | None
+    slippage_jpy_per_btc: Decimal
     acceptance_id: str | None = None
 
 
@@ -194,11 +194,7 @@ class BotState:
     @property
     def bitflyer_average_slippage_jpy_per_btc(self) -> Decimal | None:
         filled = sum(
-            (
-                entry.filled_size
-                for entry in self.bitflyer_order_metrics
-                if entry.slippage_jpy_per_btc is not None
-            ),
+            (entry.filled_size for entry in self.bitflyer_order_metrics),
             Decimal("0"),
         )
         if filled <= 0:
@@ -207,7 +203,6 @@ class BotState:
             (
                 entry.slippage_jpy_per_btc * entry.filled_size
                 for entry in self.bitflyer_order_metrics
-                if entry.slippage_jpy_per_btc is not None
             ),
             Decimal("0"),
         )
@@ -238,13 +233,14 @@ class BotState:
         slippage_jpy_per_btc: Decimal | None,
         acceptance_id: str | None = None,
     ) -> None:
-        self.bitflyer_order_metrics.append(
-            BitflyerOrderMetric(
-                expected_price=expected_price,
-                average_price=average_price,
-                filled_size=filled_size,
-                slippage_jpy_per_btc=slippage_jpy_per_btc,
-                acceptance_id=acceptance_id,
+        if filled_size > 0 and slippage_jpy_per_btc is not None:
+            self.bitflyer_order_metrics.append(
+                BitflyerOrderMetric(
+                    expected_price=expected_price,
+                    average_price=average_price,
+                    filled_size=filled_size,
+                    slippage_jpy_per_btc=slippage_jpy_per_btc,
+                    acceptance_id=acceptance_id,
+                )
             )
-        )
-        del self.bitflyer_order_metrics[:-20]
+            del self.bitflyer_order_metrics[:-20]
