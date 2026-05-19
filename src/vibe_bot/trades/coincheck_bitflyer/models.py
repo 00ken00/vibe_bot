@@ -196,25 +196,47 @@ class BotState:
 
     @property
     def bitflyer_average_slippage_jpy_per_btc(self) -> Decimal | None:
-        slippages = [
-            entry.slippage_jpy_per_btc
-            for entry in self.bitflyer_order_metrics
-            if entry.slippage_jpy_per_btc is not None
-        ]
-        if not slippages:
+        filled = sum(
+            (
+                entry.filled_size
+                for entry in self.bitflyer_order_metrics
+                if entry.slippage_jpy_per_btc is not None
+            ),
+            Decimal("0"),
+        )
+        if filled <= 0:
             return None
-        return sum(slippages, Decimal("0")) / Decimal(len(slippages))
+        total_slippage = sum(
+            (
+                entry.slippage_jpy_per_btc * entry.filled_size
+                for entry in self.bitflyer_order_metrics
+                if entry.slippage_jpy_per_btc is not None
+            ),
+            Decimal("0"),
+        )
+        return total_slippage / filled
 
     @property
     def coincheck_average_slippage_jpy_per_btc(self) -> Decimal | None:
-        slippages = [
-            entry.slippage_jpy_per_btc
-            for entry in self.coincheck_order_metrics
-            if entry.slippage_jpy_per_btc is not None
-        ]
-        if not slippages:
+        filled = sum(
+            (
+                entry.filled_size
+                for entry in self.coincheck_order_metrics
+                if entry.slippage_jpy_per_btc is not None
+            ),
+            Decimal("0"),
+        )
+        if filled <= 0:
             return None
-        return sum(slippages, Decimal("0")) / Decimal(len(slippages))
+        total_slippage = sum(
+            (
+                entry.slippage_jpy_per_btc * entry.filled_size
+                for entry in self.coincheck_order_metrics
+                if entry.slippage_jpy_per_btc is not None
+            ),
+            Decimal("0"),
+        )
+        return total_slippage / filled
 
     def record_coincheck_order_metric(
         self,
