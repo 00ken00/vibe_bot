@@ -551,6 +551,7 @@ class ArbitrageTrader:
             self.state.set_action(BotAction.TRADE_FAILED, "gmo_unfilled")
             self.logger.event("gmo_unfilled", target=asdict(target))
             return
+        bitflyer_order_started_at = time.time()
         bf_ack = await self._bf_private.send_child_order(
             product_code=self.config.bitflyer_product_code,
             child_order_type="MARKET",
@@ -562,6 +563,7 @@ class ArbitrageTrader:
             bf_ack.child_order_acceptance_id,
             fallback=target.bitflyer_expected_price,
         )
+        bitflyer_order_seconds = time.time() - bitflyer_order_started_at
         self.state.record_bitflyer_order_metric(
             expected_price=target.bitflyer_expected_price,
             average_price=bitflyer_price if bitflyer_amount > 0 else None,
@@ -573,6 +575,7 @@ class ArbitrageTrader:
             )
             if bitflyer_amount > 0
             else Decimal("0"),
+            order_seconds=bitflyer_order_seconds,
             acceptance_id=bf_ack.child_order_acceptance_id,
         )
         hedge_amount = min(gmo_amount, bitflyer_amount)
@@ -630,6 +633,7 @@ class ArbitrageTrader:
 
         if close_amount > 0:
             order_id: int | None = None
+            order_started_at = time.time()
             try:
                 order_id = await self._gmo_private.close_bulk_order(
                     symbol=self.config.gmo_symbol,
@@ -643,15 +647,18 @@ class ArbitrageTrader:
                 self.state.record_gmo_order_metric(
                     attempted_size=close_amount,
                     filled_size=Decimal("0"),
+                    order_seconds=time.time() - order_started_at,
                 )
                 raise
             order_ids.append(order_id)
             price, amount = await self._gmo_execution_summary(
                 order_id, fallback=target.gmo_expected_price
             )
+            order_seconds = time.time() - order_started_at
             self.state.record_gmo_order_metric(
                 attempted_size=close_amount,
                 filled_size=amount,
+                order_seconds=order_seconds,
                 order_id=order_id,
             )
             total_amount += amount
@@ -659,6 +666,7 @@ class ArbitrageTrader:
 
         if open_amount >= self.config.min_order_size:
             order_id = None
+            order_started_at = time.time()
             try:
                 order_id = await self._gmo_private.place_order(
                     symbol=self.config.gmo_symbol,
@@ -673,15 +681,18 @@ class ArbitrageTrader:
                 self.state.record_gmo_order_metric(
                     attempted_size=open_amount,
                     filled_size=Decimal("0"),
+                    order_seconds=time.time() - order_started_at,
                 )
                 raise
             order_ids.append(order_id)
             price, amount = await self._gmo_execution_summary(
                 order_id, fallback=target.gmo_expected_price
             )
+            order_seconds = time.time() - order_started_at
             self.state.record_gmo_order_metric(
                 attempted_size=open_amount,
                 filled_size=amount,
+                order_seconds=order_seconds,
                 order_id=order_id,
             )
             total_amount += amount

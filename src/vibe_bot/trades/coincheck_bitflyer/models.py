@@ -140,6 +140,7 @@ class BitflyerOrderMetric:
     average_price: Decimal | None
     filled_size: Decimal
     slippage_jpy_per_btc: Decimal
+    order_seconds: float
     acceptance_id: str | None = None
 
 
@@ -147,6 +148,7 @@ class BitflyerOrderMetric:
 class SlippageMetric:
     filled_size: Decimal
     slippage_jpy_per_btc: Decimal
+    order_seconds: float
 
 
 @dataclass
@@ -206,8 +208,16 @@ class BotState:
         return weighted_average_slippage(self.bitflyer_order_metrics)
 
     @property
+    def bitflyer_average_order_seconds(self) -> float | None:
+        return average_order_seconds(self.bitflyer_order_metrics)
+
+    @property
     def coincheck_average_slippage_jpy_per_btc(self) -> Decimal | None:
         return weighted_average_slippage(self.coincheck_slippage_metrics)
+
+    @property
+    def coincheck_average_order_seconds(self) -> float | None:
+        return average_order_seconds(self.coincheck_slippage_metrics)
 
     def record_coincheck_order_metric(
         self,
@@ -217,6 +227,7 @@ class BotState:
         expected_price: Decimal | None = None,
         average_price: Decimal | None = None,
         slippage_jpy_per_btc: Decimal | None = None,
+        order_seconds: float = 0.0,
         order_id: int | str | None = None,
     ) -> None:
         self.coincheck_order_metrics.append(
@@ -235,6 +246,7 @@ class BotState:
                 SlippageMetric(
                     filled_size=filled_size,
                     slippage_jpy_per_btc=slippage_jpy_per_btc,
+                    order_seconds=order_seconds,
                 )
             )
             del self.coincheck_slippage_metrics[:-20]
@@ -246,6 +258,7 @@ class BotState:
         average_price: Decimal | None,
         filled_size: Decimal,
         slippage_jpy_per_btc: Decimal | None,
+        order_seconds: float = 0.0,
         acceptance_id: str | None = None,
     ) -> None:
         if filled_size > 0 and slippage_jpy_per_btc is not None:
@@ -255,6 +268,7 @@ class BotState:
                     average_price=average_price,
                     filled_size=filled_size,
                     slippage_jpy_per_btc=slippage_jpy_per_btc,
+                    order_seconds=order_seconds,
                     acceptance_id=acceptance_id,
                 )
             )
@@ -272,3 +286,11 @@ def weighted_average_slippage(
         Decimal("0"),
     )
     return total_slippage / filled
+
+
+def average_order_seconds(
+    metrics: list[BitflyerOrderMetric] | list[SlippageMetric],
+) -> float | None:
+    if not metrics:
+        return None
+    return sum(entry.order_seconds for entry in metrics) / len(metrics)

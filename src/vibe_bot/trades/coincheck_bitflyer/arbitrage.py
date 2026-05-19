@@ -598,6 +598,7 @@ class ArbitrageTrader:
             self.state.set_action(BotAction.TRADE_FAILED, "coincheck_unfilled")
             self.logger.event("coincheck_unfilled", target=asdict(target))
             return
+        bitflyer_order_started_at = time.time()
         bf_ack = await self._bf_private.send_child_order(
             product_code=self.config.bitflyer_product_code,
             child_order_type="MARKET",
@@ -609,6 +610,7 @@ class ArbitrageTrader:
             bf_ack.child_order_acceptance_id,
             fallback=target.bitflyer_expected_price,
         )
+        bitflyer_order_seconds = time.time() - bitflyer_order_started_at
         self.state.record_bitflyer_order_metric(
             expected_price=target.bitflyer_expected_price,
             average_price=bitflyer_price if bitflyer_amount > 0 else None,
@@ -620,6 +622,7 @@ class ArbitrageTrader:
             )
             if bitflyer_amount > 0
             else Decimal("0"),
+            order_seconds=bitflyer_order_seconds,
             acceptance_id=bf_ack.child_order_acceptance_id,
         )
         hedge_amount = min(coincheck_amount, bitflyer_amount)
@@ -666,6 +669,7 @@ class ArbitrageTrader:
         assert self._coincheck_private is not None
         order_ids: list[int] = []
         order_id: int | None = None
+        order_started_at = time.time()
         try:
             order = await self._coincheck_private.place_order(
                 pair=self.config.coincheck_pair,
@@ -681,6 +685,7 @@ class ArbitrageTrader:
                 expected_price=target.coincheck_expected_price,
                 average_price=None,
                 slippage_jpy_per_btc=Decimal("0"),
+                order_seconds=time.time() - order_started_at,
             )
             raise
         order_ids.append(order_id)
@@ -692,6 +697,7 @@ class ArbitrageTrader:
         if amount < target.amount:
             with suppress(Exception):
                 await self._coincheck_private.cancel_order(order_id)
+        order_seconds = time.time() - order_started_at
         self.state.record_coincheck_order_metric(
             attempted_size=target.amount,
             filled_size=amount,
@@ -704,6 +710,7 @@ class ArbitrageTrader:
             )
             if amount > 0
             else Decimal("0"),
+            order_seconds=order_seconds,
             order_id=order_id,
         )
         if amount <= 0:

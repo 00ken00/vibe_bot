@@ -132,11 +132,17 @@ class GmoOrderMetric:
 
 
 @dataclass
+class GmoOrderTimeMetric:
+    order_seconds: float
+
+
+@dataclass
 class BitflyerOrderMetric:
     expected_price: Decimal
     average_price: Decimal | None
     filled_size: Decimal
     slippage_jpy_per_btc: Decimal
+    order_seconds: float
     acceptance_id: str | None = None
 
 
@@ -155,6 +161,7 @@ class BotState:
     last_action: BotAction = BotAction.IDLE
     action_history: list[ActionHistoryEntry] = field(default_factory=list)
     gmo_order_metrics: list[GmoOrderMetric] = field(default_factory=list)
+    gmo_order_time_metrics: list[GmoOrderTimeMetric] = field(default_factory=list)
     bitflyer_order_metrics: list[BitflyerOrderMetric] = field(default_factory=list)
     last_error: str = ""
     started_at: float = field(default_factory=time.time)
@@ -208,11 +215,20 @@ class BotState:
         )
         return total_slippage / filled
 
+    @property
+    def bitflyer_average_order_seconds(self) -> float | None:
+        return average_order_seconds(self.bitflyer_order_metrics)
+
+    @property
+    def gmo_average_order_seconds(self) -> float | None:
+        return average_order_seconds(self.gmo_order_time_metrics)
+
     def record_gmo_order_metric(
         self,
         *,
         attempted_size: Decimal,
         filled_size: Decimal,
+        order_seconds: float = 0.0,
         order_id: int | str | None = None,
     ) -> None:
         self.gmo_order_metrics.append(
@@ -223,6 +239,11 @@ class BotState:
             )
         )
         del self.gmo_order_metrics[:-20]
+        if filled_size > 0:
+            self.gmo_order_time_metrics.append(
+                GmoOrderTimeMetric(order_seconds=order_seconds)
+            )
+            del self.gmo_order_time_metrics[:-20]
 
     def record_bitflyer_order_metric(
         self,
@@ -231,6 +252,7 @@ class BotState:
         average_price: Decimal | None,
         filled_size: Decimal,
         slippage_jpy_per_btc: Decimal | None,
+        order_seconds: float = 0.0,
         acceptance_id: str | None = None,
     ) -> None:
         if filled_size > 0 and slippage_jpy_per_btc is not None:
@@ -240,7 +262,16 @@ class BotState:
                     average_price=average_price,
                     filled_size=filled_size,
                     slippage_jpy_per_btc=slippage_jpy_per_btc,
+                    order_seconds=order_seconds,
                     acceptance_id=acceptance_id,
                 )
             )
             del self.bitflyer_order_metrics[:-20]
+
+
+def average_order_seconds(
+    metrics: list[GmoOrderTimeMetric] | list[BitflyerOrderMetric],
+) -> float | None:
+    if not metrics:
+        return None
+    return sum(entry.order_seconds for entry in metrics) / len(metrics)

@@ -99,8 +99,13 @@ class WebApp:
             "trade_count": self.state.trade_count,
             "gmo_order_success_rate": self.state.gmo_order_success_rate,
             "gmo_order_metric_count": len(self.state.gmo_order_metrics),
+            "gmo_average_order_seconds": self.state.gmo_average_order_seconds,
+            "gmo_order_time_metric_count": len(self.state.gmo_order_time_metrics),
             "bitflyer_average_slippage_jpy_per_btc": (
                 self.state.bitflyer_average_slippage_jpy_per_btc
+            ),
+            "bitflyer_average_order_seconds": (
+                self.state.bitflyer_average_order_seconds
             ),
             "bitflyer_order_metric_count": len(self.state.bitflyer_order_metrics),
             "last_action": self.state.last_action.value,
@@ -298,7 +303,9 @@ td {{ font-size: 13px; overflow-wrap: anywhere; }}
     <div class="metric"><div class="label">Filled BTC</div><div id="filled" class="value">--</div></div>
     <div class="metric"><div class="label">Trades</div><div id="trades" class="value">--</div></div>
     <div class="metric"><div class="label">GMO Order Success</div><div id="gmoOrderSuccess" class="value">--</div><div id="gmoOrderSuccessDetail" class="label">recent 0 / 20</div></div>
+    <div class="metric"><div class="label">GMO Avg Order Time</div><div id="gmoOrderTime" class="value">--</div><div id="gmoOrderTimeDetail" class="label">recent 0 / 20</div></div>
     <div class="metric"><div class="label">bitFlyer Avg Slippage/BTC</div><div id="bitflyerSlippage" class="value">--</div><div id="bitflyerSlippageDetail" class="label">recent 0 / 20</div></div>
+    <div class="metric"><div class="label">bitFlyer Avg Order Time</div><div id="bitflyerOrderTime" class="value">--</div><div id="bitflyerOrderTimeDetail" class="label">recent 0 / 20</div></div>
     <div class="metric"><div class="label">Action</div><div id="action" class="value">--</div></div>
   </section>
 
@@ -368,6 +375,7 @@ const el = id => document.getElementById(id);
 function num(v) {{ return v == null ? null : Number(v); }}
 function finite(v) {{ return Number.isFinite(v); }}
 function money(v) {{ const n = num(v); return finite(n) ? fmt.format(n) : "--"; }}
+function seconds(v) {{ const n = num(v); return finite(n) ? `${{fmt.format(n)}} s` : "--"; }}
 function btc(v) {{ const n = num(v); return finite(n) ? btcFmt.format(n) : "--"; }}
 function pct(v) {{ const n = num(v); return finite(n) ? `${{fmt.format(n * 100)}}%` : "--"; }}
 function setText(id, value) {{ el(id).textContent = value; }}
@@ -413,8 +421,12 @@ function render() {{
   setText("trades", latest.trade_count ?? "--");
   setText("gmoOrderSuccess", pct(latest.gmo_order_success_rate));
   setText("gmoOrderSuccessDetail", `recent ${{latest.gmo_order_metric_count ?? 0}} / 20`);
+  setText("gmoOrderTime", seconds(latest.gmo_average_order_seconds));
+  setText("gmoOrderTimeDetail", `recent ${{latest.gmo_order_time_metric_count ?? 0}} / 20`);
   setText("bitflyerSlippage", money(latest.bitflyer_average_slippage_jpy_per_btc));
   setText("bitflyerSlippageDetail", `recent ${{latest.bitflyer_order_metric_count ?? 0}} / 20`);
+  setText("bitflyerOrderTime", seconds(latest.bitflyer_average_order_seconds));
+  setText("bitflyerOrderTimeDetail", `recent ${{latest.bitflyer_order_metric_count ?? 0}} / 20`);
   setText("action", latest.last_action || "--");
   setText("gmoTop", `${{money(q.gmo_bid)}} / ${{money(q.gmo_ask)}}`);
   setText("gmoDepth", `${{money(q.gmo_bid_vwap)}} / ${{money(q.gmo_ask_vwap)}}`);
