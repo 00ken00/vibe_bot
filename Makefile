@@ -7,10 +7,11 @@ help:
 	@echo "  sync-coincheck-bitflyer-arbitrage-logs"
 
 pull-remote:
-	gcloud compute ssh veryshj123@vibe-bot -- -t 'cd vibe_bot && git pull'
+	ssh vibe-bot -t 'cd vibe_bot && git pull'
+
 
 update-remote-env:
-	gcloud compute scp .env veryshj123@vibe-bot:vibe_bot/.env
+	scp .env vibe-bot:vibe_bot/.env
 
 sync-coincheck-bitflyer-arbitrage-logs:
 	rsync -avP \
