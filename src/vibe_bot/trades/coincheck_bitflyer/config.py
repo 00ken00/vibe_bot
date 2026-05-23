@@ -32,6 +32,8 @@ class BotConfig:
     gate_min_extra_edge_jpy: Decimal = Decimal("0")
     gate_persistence_seconds: float = 2.0
     gate_max_slippage_jpy: Decimal = Decimal("500")
+    coincheck_settlement_seconds: float = 5.0
+    coincheck_settlement_stable_seconds: float = 0.75
     gate_bitflyer_maintenance_guard_enabled: bool = True
     gate_bitflyer_maintenance_start_jst: str = "03:59:30"
     gate_bitflyer_maintenance_end_jst: str = "04:12:30"
@@ -99,6 +101,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum allowed limit offset from executable VWAP on each taker leg",
     )
     parser.add_argument(
+        "--coincheck-settlement-seconds",
+        type=float,
+        default=5.0,
+        help="seconds to reconcile additional Coincheck fills after the first hedge",
+    )
+    parser.add_argument(
+        "--coincheck-settlement-stable-seconds",
+        type=float,
+        default=0.75,
+        help="seconds with unchanged Coincheck fill size before accepting a partial fill as settled",
+    )
+    parser.add_argument(
         "--disable-gate-bitflyer-maintenance-guard",
         action="store_true",
         help="do not pause trading during the daily bitFlyer maintenance guard",
@@ -157,6 +171,10 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--gate-persistence-seconds must be non-negative")
     if args.gate_max_slippage_jpy < 0:
         raise SystemExit("--gate-max-slippage-jpy must be non-negative")
+    if args.coincheck_settlement_seconds < 0:
+        raise SystemExit("--coincheck-settlement-seconds must be non-negative")
+    if args.coincheck_settlement_stable_seconds < 0:
+        raise SystemExit("--coincheck-settlement-stable-seconds must be non-negative")
     if args.monitor_update_interval <= 0:
         raise SystemExit("--monitor-update-interval must be positive")
     try:
@@ -184,6 +202,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         gate_min_extra_edge_jpy=args.gate_min_extra_edge_jpy,
         gate_persistence_seconds=args.gate_persistence_seconds,
         gate_max_slippage_jpy=args.gate_max_slippage_jpy,
+        coincheck_settlement_seconds=args.coincheck_settlement_seconds,
+        coincheck_settlement_stable_seconds=args.coincheck_settlement_stable_seconds,
         gate_bitflyer_maintenance_guard_enabled=not args.disable_gate_bitflyer_maintenance_guard,
         gate_bitflyer_maintenance_start_jst=args.gate_bitflyer_maintenance_start_jst,
         gate_bitflyer_maintenance_end_jst=args.gate_bitflyer_maintenance_end_jst,

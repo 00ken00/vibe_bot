@@ -598,32 +598,8 @@ class ArbitrageTrader:
             self.state.set_action(BotAction.TRADE_FAILED, "coincheck_unfilled")
             self.logger.event("coincheck_unfilled", target=asdict(target))
             return
-        bitflyer_order_started_at = time.time()
-        bf_ack = await self._bf_private.send_child_order(
-            product_code=self.config.bitflyer_product_code,
-            child_order_type="MARKET",
-            side=target.bitflyer_side,
-            size=coincheck_amount,
-            time_in_force="IOC",
-        )
-        bitflyer_price, bitflyer_amount = await self._bitflyer_execution_summary(
-            bf_ack.child_order_acceptance_id,
-            fallback=target.bitflyer_expected_price,
-        )
-        bitflyer_order_seconds = time.time() - bitflyer_order_started_at
-        self.state.record_bitflyer_order_metric(
-            expected_price=target.bitflyer_expected_price,
-            average_price=bitflyer_price if bitflyer_amount > 0 else None,
-            filled_size=bitflyer_amount,
-            slippage_jpy_per_btc=self._bitflyer_slippage_jpy_per_btc(
-                target.bitflyer_side,
-                target.bitflyer_expected_price,
-                bitflyer_price,
-            )
-            if bitflyer_amount > 0
-            else Decimal("0"),
-            order_seconds=bitflyer_order_seconds,
-            acceptance_id=bf_ack.child_order_acceptance_id,
+        bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
+            await self._execute_bitflyer_hedge(target, coincheck_amount)
         )
         hedge_amount = min(coincheck_amount, bitflyer_amount)
         if hedge_amount <= 0:
@@ -649,7 +625,7 @@ class ArbitrageTrader:
             coincheck_average_price=coincheck_price,
             bitflyer_average_price=bitflyer_price,
             coincheck_order_id=",".join(str(x) for x in coincheck_order_ids),
-            bitflyer_acceptance_id=bf_ack.child_order_acceptance_id,
+            bitflyer_acceptance_id=bitflyer_acceptance_id,
         )
         if coincheck_amount > hedge_amount:
             self._apply_coincheck_position(target.action, coincheck_amount - hedge_amount)
@@ -658,6 +634,12 @@ class ArbitrageTrader:
                 amount=coincheck_amount - hedge_amount,
                 unhedged_position=self.state.unhedged_position,
             )
+        await self._reconcile_late_coincheck_fill(
+            target=target,
+            order_ids=coincheck_order_ids,
+            initial_coincheck_price=coincheck_price,
+            initial_coincheck_amount=coincheck_amount,
+        )
         self.state.set_action(
             BotAction.TRADE_PLACED,
             event_summary("trade_placed", target=asdict(target), amount=hedge_amount),
@@ -717,22 +699,136 @@ class ArbitrageTrader:
             return target.coincheck_expected_price, Decimal("0"), order_ids
         return price, amount, order_ids
 
+    async def _execute_bitflyer_hedge(
+        self, target: TradeTarget, amount: Decimal
+    ) -> tuple[Decimal, Decimal, str]:
+        assert self._bf_private is not None
+        bitflyer_order_started_at = time.time()
+        bf_ack = await self._bf_private.send_child_order(
+            product_code=self.config.bitflyer_product_code,
+            child_order_type="MARKET",
+            side=target.bitflyer_side,
+            size=amount,
+            time_in_force="IOC",
+        )
+        bitflyer_price, bitflyer_amount = await self._bitflyer_execution_summary(
+            bf_ack.child_order_acceptance_id,
+            fallback=target.bitflyer_expected_price,
+        )
+        bitflyer_order_seconds = time.time() - bitflyer_order_started_at
+        self.state.record_bitflyer_order_metric(
+            expected_price=target.bitflyer_expected_price,
+            average_price=bitflyer_price if bitflyer_amount > 0 else None,
+            filled_size=bitflyer_amount,
+            slippage_jpy_per_btc=self._bitflyer_slippage_jpy_per_btc(
+                target.bitflyer_side,
+                target.bitflyer_expected_price,
+                bitflyer_price,
+            )
+            if bitflyer_amount > 0
+            else Decimal("0"),
+            order_seconds=bitflyer_order_seconds,
+            acceptance_id=bf_ack.child_order_acceptance_id,
+        )
+        return bitflyer_price, bitflyer_amount, bf_ack.child_order_acceptance_id
+
+    async def _reconcile_late_coincheck_fill(
+        self,
+        *,
+        target: TradeTarget,
+        order_ids: list[int],
+        initial_coincheck_price: Decimal,
+        initial_coincheck_amount: Decimal,
+    ) -> None:
+        if (
+            initial_coincheck_amount >= target.amount
+            or self.config.coincheck_settlement_seconds <= 0
+        ):
+            return
+        assert self._bf_private is not None
+        final_price, final_amount = await self._coincheck_execution_summary(
+            order_ids[-1],
+            side=target.coincheck_side,
+            fallback=target.coincheck_expected_price,
+            wait_for_amount=target.amount,
+            min_amount=initial_coincheck_amount,
+            deadline_seconds=self.config.coincheck_settlement_seconds,
+            stable_seconds=self.config.coincheck_settlement_stable_seconds,
+        )
+        extra_amount = final_amount - initial_coincheck_amount
+        if extra_amount <= 0:
+            return
+
+        extra_price = (
+            (final_price * final_amount - initial_coincheck_price * initial_coincheck_amount)
+            / extra_amount
+        )
+        self.logger.event(
+            "late_coincheck_fill",
+            order_id=order_ids[-1],
+            initial_amount=initial_coincheck_amount,
+            final_amount=final_amount,
+            extra_amount=extra_amount,
+            extra_average_price=extra_price,
+        )
+
+        bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
+            await self._execute_bitflyer_hedge(target, extra_amount)
+        )
+        hedge_amount = min(extra_amount, bitflyer_amount)
+        if hedge_amount > 0:
+            self._record_trade(
+                target=target,
+                amount=hedge_amount,
+                coincheck_average_price=extra_price,
+                bitflyer_average_price=bitflyer_price,
+                coincheck_order_id=",".join(str(x) for x in order_ids),
+                bitflyer_acceptance_id=bitflyer_acceptance_id,
+            )
+        if bitflyer_amount != extra_amount:
+            self.logger.event(
+                "late_coincheck_partial_hedge",
+                requested_amount=extra_amount,
+                bitflyer_amount=bitflyer_amount,
+                recorded_amount=hedge_amount,
+            )
+        if extra_amount > hedge_amount:
+            self._apply_coincheck_position(target.action, extra_amount - hedge_amount)
+            self.logger.event(
+                "unhedged_late_coincheck_remainder",
+                amount=extra_amount - hedge_amount,
+                unhedged_position=self.state.unhedged_position,
+            )
+
     async def _coincheck_execution_summary(
-        self, order_id: int, *, side: str, fallback: Decimal
+        self,
+        order_id: int,
+        *,
+        side: str,
+        fallback: Decimal,
+        wait_for_amount: Decimal | None = None,
+        min_amount: Decimal | None = None,
+        deadline_seconds: float = 3.0,
+        stable_seconds: float = 0.0,
     ) -> tuple[Decimal, Decimal]:
         assert self._coincheck_private is not None
         base_asset = self.config.coincheck_pair.split("_", 1)[0].lower()
-        deadline = time.time() + 3.0
+        deadline = time.time() + deadline_seconds
+        last_total_size = Decimal("-1")
+        last_change_at = time.time()
+        last_price = fallback
+        last_amount = Decimal("0")
         while time.time() < deadline:
             transactions = await self._coincheck_private.transactions(
                 limit=100,
                 order="desc",
             )
-            matching = [
-                transaction
+            matching_by_id = {
+                transaction.id: transaction
                 for transaction in transactions.transactions
                 if transaction.order_id == order_id and transaction.side == side
-            ]
+            }
+            matching = list(matching_by_id.values())
             total_size = sum(
                 (
                     abs((transaction.funds or {}).get(base_asset, Decimal("0")))
@@ -749,9 +845,23 @@ class ArbitrageTrader:
                     ),
                     Decimal("0"),
                 )
-                return total_notional / total_size, total_size
+                price = total_notional / total_size
+                last_price = price
+                last_amount = total_size
+                if total_size != last_total_size:
+                    last_total_size = total_size
+                    last_change_at = time.time()
+                if wait_for_amount is not None and total_size >= wait_for_amount:
+                    return price, total_size
+                if min_amount is None and stable_seconds <= 0:
+                    return price, total_size
+                if (
+                    (min_amount is None or total_size >= min_amount)
+                    and time.time() - last_change_at >= stable_seconds
+                ):
+                    return price, total_size
             await asyncio.sleep(0.25)
-        return fallback, Decimal("0")
+        return last_price, last_amount
 
     async def _bitflyer_execution_summary(
         self, acceptance_id: str, fallback: Decimal
