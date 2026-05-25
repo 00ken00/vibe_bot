@@ -13,5 +13,6 @@ wheels/
 
 # secrets
 .env
+.env.gcp
 /quote_log/
 /logs/
