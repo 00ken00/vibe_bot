@@ -127,14 +127,12 @@ async def fetch_coincheck_spot_amounts(
     max_transaction_pages: int,
 ) -> list[SpotAmountPoint]:
     async with CoincheckPrivateClient() as client:
-        balance, transactions = await asyncio.gather(
-            client.balance(),
-            _fetch_recent_transactions(
-                client,
-                start=start,
-                limit=transaction_limit,
-                max_pages=max_transaction_pages,
-            ),
+        balance = await client.balance()
+        transactions = await _fetch_recent_transactions(
+            client,
+            start=start,
+            limit=transaction_limit,
+            max_pages=max_transaction_pages,
         )
 
     current_amount = _balance_amount(balance.balances, base_asset)
