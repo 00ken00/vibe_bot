@@ -355,7 +355,7 @@ async def _fetch_recent_transactions(
     limit: int,
     max_pages: int,
 ) -> list[Transaction]:
-    rows: list[Transaction] = []
+    rows_by_id: dict[int, Transaction] = {}
     ending_before: int | None = None
     for _ in range(max_pages):
         page = await client.transactions(
@@ -365,7 +365,8 @@ async def _fetch_recent_transactions(
         )
         if not page.transactions:
             break
-        rows.extend(page.transactions)
+        for transaction in page.transactions:
+            rows_by_id[transaction.id] = transaction
         oldest = min(page.transactions, key=_transaction_time)
         if _transaction_time(oldest) < start:
             break
@@ -373,14 +374,17 @@ async def _fetch_recent_transactions(
         if ending_before == next_ending_before:
             break
         ending_before = next_ending_before
-    return rows
+    return list(rows_by_id.values())
 
 
 def _balance_amount(balances: dict[str, Decimal], base_asset: str) -> Decimal:
+    total = Decimal("0")
     for asset, amount in balances.items():
         if asset.lower() == base_asset:
-            return amount
-    return Decimal("0")
+            total += amount
+        elif asset.lower() == f"{base_asset}_reserved":
+            total += amount
+    return total
 
 
 def _base_asset_delta(transaction: Transaction, base_asset: str) -> Decimal:
