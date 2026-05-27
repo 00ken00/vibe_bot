@@ -121,7 +121,10 @@ async def fetch_asset_snapshot() -> AssetSnapshot:
             coincheck_balance.balances,
             rates,
         ),
-        bitflyer_cfd_asset=bitflyer_collateral.collateral,
+        bitflyer_cfd_asset=(
+            bitflyer_collateral.collateral
+            + bitflyer_collateral.open_position_pnl
+        ),
     )
 
 
