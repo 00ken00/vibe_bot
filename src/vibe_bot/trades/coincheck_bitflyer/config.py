@@ -36,7 +36,7 @@ class BotConfig:
     coincheck_settlement_stable_seconds: float = 0.75
     gate_bitflyer_maintenance_guard_enabled: bool = True
     gate_bitflyer_maintenance_start_jst: str = "03:59:30"
-    gate_bitflyer_maintenance_end_jst: str = "04:12:30"
+    gate_bitflyer_maintenance_end_jst: str = "05:00:00"
     dry_run: bool = True
     web_host: str = "0.0.0.0"
     web_port: int = 8765
@@ -118,7 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not pause trading during the daily bitFlyer maintenance guard",
     )
     parser.add_argument("--gate-bitflyer-maintenance-start-jst", default="03:59:30")
-    parser.add_argument("--gate-bitflyer-maintenance-end-jst", default="04:12:30")
+    parser.add_argument("--gate-bitflyer-maintenance-end-jst", default="05:00:00")
     parser.add_argument("--web-host", default="0.0.0.0")
     parser.add_argument("--web-port", type=int, default=8765)
     parser.add_argument("--ws-port", type=int, default=8766)

@@ -170,6 +170,26 @@ class ArbitrageTrader:
             return
         self.state.filter = self.filter.update(raw_spread)
         self.state.stage_status = self._stage_status()
+        if abs(self.state.unhedged_position) >= self.config.min_order_size:
+            if self._in_bitflyer_maintenance_guard():
+                condition = TradeCondition(
+                    False,
+                    "bitflyer_maintenance_guard",
+                    details={"unhedged_position": self.state.unhedged_position},
+                )
+                self.state.last_trade_condition = condition
+                self.state.set_action(
+                    BotAction.BLOCKED,
+                    event_summary(condition.reason, **condition.details),
+                )
+                self.logger.event(
+                    "trade_condition_blocked",
+                    reason=condition.reason,
+                    details=condition.details,
+                )
+                return
+            await self._repair_unhedged_position()
+            return
         condition = self._check_trade_condition()
         self.state.last_trade_condition = condition
         if not condition.passed:
@@ -207,6 +227,13 @@ class ArbitrageTrader:
     def _check_trade_condition(self) -> TradeCondition:
         if self._in_bitflyer_maintenance_guard():
             return TradeCondition(False, "bitflyer_maintenance_guard")
+        unhedged = abs(self.state.unhedged_position)
+        if unhedged >= self.config.min_order_size:
+            return TradeCondition(
+                False,
+                "unhedged_position_requires_repair",
+                details={"unhedged_position": self.state.unhedged_position},
+            )
         if time.time() - self._last_trade_at < self.config.gate_entry_cooldown_seconds:
             return TradeCondition(
                 False,
@@ -598,12 +625,20 @@ class ArbitrageTrader:
             self.state.set_action(BotAction.TRADE_FAILED, "coincheck_unfilled")
             self.logger.event("coincheck_unfilled", target=asdict(target))
             return
+        self._apply_coincheck_position(target.action, coincheck_amount)
+        self.logger.event(
+            "coincheck_filled",
+            target=asdict(target),
+            amount=coincheck_amount,
+            average_price=coincheck_price,
+            order_id=",".join(str(x) for x in coincheck_order_ids),
+            unhedged_position=self.state.unhedged_position,
+        )
         bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
             await self._execute_bitflyer_hedge(target, coincheck_amount)
         )
         hedge_amount = min(coincheck_amount, bitflyer_amount)
         if hedge_amount <= 0:
-            self._apply_coincheck_position(target.action, coincheck_amount)
             self.state.set_action(BotAction.TRADE_FAILED, "bitflyer_unfilled")
             self.logger.event(
                 "bitflyer_unfilled",
@@ -626,9 +661,9 @@ class ArbitrageTrader:
             bitflyer_average_price=bitflyer_price,
             coincheck_order_id=",".join(str(x) for x in coincheck_order_ids),
             bitflyer_acceptance_id=bitflyer_acceptance_id,
+            apply_coincheck=False,
         )
         if coincheck_amount > hedge_amount:
-            self._apply_coincheck_position(target.action, coincheck_amount - hedge_amount)
             self.logger.event(
                 "unhedged_coincheck_remainder",
                 amount=coincheck_amount - hedge_amount,
@@ -702,27 +737,36 @@ class ArbitrageTrader:
     async def _execute_bitflyer_hedge(
         self, target: TradeTarget, amount: Decimal
     ) -> tuple[Decimal, Decimal, str]:
+        return await self._execute_bitflyer_order(
+            side=target.bitflyer_side,
+            amount=amount,
+            expected_price=target.bitflyer_expected_price,
+        )
+
+    async def _execute_bitflyer_order(
+        self, *, side: str, amount: Decimal, expected_price: Decimal
+    ) -> tuple[Decimal, Decimal, str]:
         assert self._bf_private is not None
         bitflyer_order_started_at = time.time()
         bf_ack = await self._bf_private.send_child_order(
             product_code=self.config.bitflyer_product_code,
             child_order_type="MARKET",
-            side=target.bitflyer_side,
+            side=side,
             size=amount,
             time_in_force="IOC",
         )
         bitflyer_price, bitflyer_amount = await self._bitflyer_execution_summary(
             bf_ack.child_order_acceptance_id,
-            fallback=target.bitflyer_expected_price,
+            fallback=expected_price,
         )
         bitflyer_order_seconds = time.time() - bitflyer_order_started_at
         self.state.record_bitflyer_order_metric(
-            expected_price=target.bitflyer_expected_price,
+            expected_price=expected_price,
             average_price=bitflyer_price if bitflyer_amount > 0 else None,
             filled_size=bitflyer_amount,
             slippage_jpy_per_btc=self._bitflyer_slippage_jpy_per_btc(
-                target.bitflyer_side,
-                target.bitflyer_expected_price,
+                side,
+                expected_price,
                 bitflyer_price,
             )
             if bitflyer_amount > 0
@@ -731,6 +775,104 @@ class ArbitrageTrader:
             acceptance_id=bf_ack.child_order_acceptance_id,
         )
         return bitflyer_price, bitflyer_amount, bf_ack.child_order_acceptance_id
+
+    async def _repair_unhedged_position(self) -> None:
+        unhedged = self.state.unhedged_position
+        amount = abs(unhedged)
+        if amount < self.config.min_order_size:
+            return
+        side = "SELL" if unhedged > 0 else "BUY"
+        quote = self.state.quote
+        expected_price = (
+            quote.bitflyer_bid_vwap if side == "SELL" else quote.bitflyer_ask_vwap
+        )
+        if expected_price is None:
+            self.state.last_trade_condition = TradeCondition(
+                False,
+                "waiting_for_quotes",
+                details={"repair_side": side, "unhedged_position": unhedged},
+            )
+            self.state.set_action(BotAction.WAITING_FOR_QUOTES, "repair hedge quotes missing")
+            return
+        self.logger.event(
+            "unhedged_repair_attempt",
+            side=side,
+            amount=amount,
+            unhedged_position=unhedged,
+            expected_price=expected_price,
+        )
+        try:
+            price, filled_amount, acceptance_id = await self._execute_bitflyer_order(
+                side=side,
+                amount=amount,
+                expected_price=expected_price,
+            )
+        except Exception as exc:
+            self.state.last_trade_condition = TradeCondition(
+                False,
+                "unhedged_repair_failed",
+                details={"error": str(exc), "unhedged_position": unhedged},
+            )
+            self.state.set_action(
+                BotAction.TRADE_FAILED,
+                event_summary(
+                    "unhedged_repair_failed",
+                    unhedged_position=unhedged,
+                    error=str(exc),
+                ),
+            )
+            self.logger.event(
+                "unhedged_repair_failed",
+                side=side,
+                amount=amount,
+                unhedged_position=unhedged,
+                error=str(exc),
+            )
+            return
+        if filled_amount <= 0:
+            self.state.last_trade_condition = TradeCondition(
+                False,
+                "unhedged_repair_unfilled",
+                details={"unhedged_position": unhedged},
+            )
+            self.state.set_action(BotAction.TRADE_FAILED, "unhedged_repair_unfilled")
+            self.logger.event(
+                "unhedged_repair_unfilled",
+                side=side,
+                amount=amount,
+                unhedged_position=unhedged,
+                acceptance_id=acceptance_id,
+            )
+            return
+        self._apply_bitflyer_position(side, filled_amount)
+        self.state.last_trade_condition = TradeCondition(
+            False,
+            "unhedged_position_repairing",
+            details={
+                "side": side,
+                "attempted_amount": amount,
+                "filled_amount": filled_amount,
+                "unhedged_position": self.state.unhedged_position,
+            },
+        )
+        self.state.set_action(
+            BotAction.TRADE_PLACED,
+            event_summary(
+                "unhedged_repair_placed",
+                side=side,
+                amount=filled_amount,
+                unhedged_position=self.state.unhedged_position,
+            ),
+        )
+        self.logger.event(
+            "unhedged_repair_placed",
+            side=side,
+            requested_amount=amount,
+            filled_amount=filled_amount,
+            average_price=price,
+            acceptance_id=acceptance_id,
+            unhedged_position=self.state.unhedged_position,
+        )
 
     async def _reconcile_late_coincheck_fill(
         self,
@@ -763,6 +905,7 @@ class ArbitrageTrader:
             (final_price * final_amount - initial_coincheck_price * initial_coincheck_amount)
             / extra_amount
         )
+        self._apply_coincheck_position(target.action, extra_amount)
         self.logger.event(
             "late_coincheck_fill",
             order_id=order_ids[-1],
@@ -770,6 +913,7 @@ class ArbitrageTrader:
             final_amount=final_amount,
             extra_amount=extra_amount,
             extra_average_price=extra_price,
+            unhedged_position=self.state.unhedged_position,
         )
 
         bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
@@ -784,6 +928,7 @@ class ArbitrageTrader:
                 bitflyer_average_price=bitflyer_price,
                 coincheck_order_id=",".join(str(x) for x in order_ids),
                 bitflyer_acceptance_id=bitflyer_acceptance_id,
+                apply_coincheck=False,
             )
         if bitflyer_amount != extra_amount:
             self.logger.event(
@@ -793,7 +938,6 @@ class ArbitrageTrader:
                 recorded_amount=hedge_amount,
             )
         if extra_amount > hedge_amount:
-            self._apply_coincheck_position(target.action, extra_amount - hedge_amount)
             self.logger.event(
                 "unhedged_late_coincheck_remainder",
                 amount=extra_amount - hedge_amount,
@@ -904,8 +1048,10 @@ class ArbitrageTrader:
         bitflyer_average_price: Decimal,
         coincheck_order_id: str,
         bitflyer_acceptance_id: str,
+        apply_coincheck: bool = True,
     ) -> None:
-        self._apply_coincheck_position(target.action, amount)
+        if apply_coincheck:
+            self._apply_coincheck_position(target.action, amount)
         self._apply_bitflyer_position(target.bitflyer_side, amount)
         cashflow = (
             (bitflyer_average_price - coincheck_average_price) * amount
