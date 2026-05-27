@@ -30,7 +30,7 @@ class BotConfig:
     bitflyer_min_order_size: Decimal = Decimal("0.001")
     bitflyer_maintenance_guard_enabled: bool = True
     bitflyer_maintenance_start_jst: str = "03:59:30"
-    bitflyer_maintenance_end_jst: str = "04:12:30"
+    bitflyer_maintenance_end_jst: str = "05:00:00"
     dry_run: bool = True
     hedge_enabled: bool = True
     web_host: str = "0.0.0.0"
@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--bitflyer-maintenance-end-jst",
-        default="04:12:30",
+        default="05:00:00",
         help="JST HH:MM[:SS] end time for the bitFlyer maintenance guard",
     )
     parser.add_argument("--bitbank-pair", default="btc_jpy")
