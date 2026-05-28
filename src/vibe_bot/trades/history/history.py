@@ -609,6 +609,17 @@ def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
 
 
 def __main__():
+    """Manual local runner.
+
+    Accepted ``candle_minutes`` values by exchange:
+    - bitbank: 1, 5, 15, 30, 60
+    - bitFlyer: 1, 5, 15, 30, 60
+    - GMO: 1, 5, 15, 30, 60
+    - coincheck: 1, 5, 15, 60, 240, 720, 1440
+
+    Coincheck rejects 30-minute candles and caps responses at about 301 rows,
+    so 5-minute Coincheck candles only cover roughly 25 hours.
+    """
 
     left_exchange, left_symbol = "bitbank", "btc_jpy"
     left_exchange, left_symbol = "GMO", "BTC_JPY"
