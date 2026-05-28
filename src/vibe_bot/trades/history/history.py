@@ -116,6 +116,22 @@ async def fetch_historical_spreads(
         )
     )
     left_closes, right_closes = await asyncio.gather(left_task, right_task)
+    _validate_close_coverage(
+        config.left_exchange,
+        config.left_symbol,
+        left_closes,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        candle_minutes=config.candle_minutes,
+    )
+    _validate_close_coverage(
+        config.right_exchange,
+        config.right_symbol,
+        right_closes,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        candle_minutes=config.candle_minutes,
+    )
 
     points = []
     for timestamp in sorted(set(left_closes) & set(right_closes)):
@@ -369,6 +385,40 @@ def validate_config(days: int, candle_minutes: int) -> None:
         raise ValueError("candle_minutes must be one of 1, 5, 15, 30, 60")
 
 
+def _validate_close_coverage(
+    exchange: str,
+    symbol: str,
+    closes: dict[int, Decimal],
+    *,
+    start_ms: int,
+    end_ms: int,
+    candle_minutes: int,
+) -> None:
+    if not closes:
+        raise RuntimeError(f"no {exchange} {symbol} candle closes were returned")
+
+    candle_ms = candle_minutes * 60 * 1000
+    first = min(closes)
+    last = max(closes)
+    if first <= start_ms + candle_ms and last >= end_ms - candle_ms:
+        return
+
+    first_text = datetime.fromtimestamp(first / 1000, tz=JST).isoformat()
+    last_text = datetime.fromtimestamp(last / 1000, tz=JST).isoformat()
+    start_text = datetime.fromtimestamp(start_ms / 1000, tz=JST).isoformat()
+    end_text = datetime.fromtimestamp(end_ms / 1000, tz=JST).isoformat()
+    detail = (
+        f"{exchange} {symbol} returned {len(closes)} {candle_minutes}m candles "
+        f"from {first_text} to {last_text}, but requested {start_text} to {end_text}"
+    )
+    if exchange == "coincheck":
+        detail += (
+            ". Coincheck's chart endpoint currently caps small-interval candles; "
+            "use a shorter period or a larger candle interval such as 60 minutes."
+        )
+    raise RuntimeError(detail)
+
+
 async def _fetch_exchange_closes(
     exchange: str,
     *,
@@ -572,6 +622,6 @@ def __main__():
         right_exchange=right_exchange,
         right_symbol=right_symbol,
         days=5,
-        # candle_minutes=60,
-        candle_minutes=5,
+        candle_minutes=60,
+        # candle_minutes=5,
     )
