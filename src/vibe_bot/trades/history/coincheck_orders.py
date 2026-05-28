@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import plotly.graph_objects as go
@@ -86,14 +87,14 @@ async def fetch_chart_data(
     pair: str = "btc_jpy",
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
-    max_transaction_pages: int = 20,
+    max_transaction_pages: int | None = None,
     neutral_amount: Decimal | str | None = None,
 ) -> CoincheckOrdersChartData:
     """Fetch recent Coincheck spot BTC balance changes and BTC price candles."""
     validate_config(days, candle_minutes)
     if transaction_limit <= 0:
         raise ValueError("transaction_limit must be positive")
-    if max_transaction_pages <= 0:
+    if max_transaction_pages is not None and max_transaction_pages <= 0:
         raise ValueError("max_transaction_pages must be positive")
     if not price_sources:
         raise ValueError("price_sources must not be empty")
@@ -163,7 +164,7 @@ async def fetch_coincheck_spot_amounts(
     start: datetime,
     end: datetime,
     transaction_limit: int,
-    max_transaction_pages: int,
+    max_transaction_pages: int | None,
 ) -> list[SpotAmountPoint]:
     spot_data = await fetch_coincheck_spot_data(
         pair=pair,
@@ -183,7 +184,7 @@ async def fetch_coincheck_spot_data(
     start: datetime,
     end: datetime,
     transaction_limit: int,
-    max_transaction_pages: int,
+    max_transaction_pages: int | None,
 ) -> CoincheckSpotData:
     async with CoincheckPrivateClient() as client:
         balance = await client.balance()
@@ -221,6 +222,8 @@ async def fetch_price_points(
 ) -> list[PricePoint]:
     start_ms = int(start.timestamp() * 1000)
     end_ms = int(end.timestamp() * 1000)
+    candle_ms = candle_minutes * 60 * 1000
+    best_partial: list[PricePoint] = []
     for source in price_sources:
         closes = await _fetch_exchange_closes(
             source.exchange,
@@ -240,9 +243,24 @@ async def fetch_price_points(
             for timestamp, close in sorted(closes.items())
             if start_ms <= timestamp <= end_ms
         ]
-        if points:
+        if not points:
+            continue
+        if (
+            points[0].timestamp <= start_ms + candle_ms
+            and points[-1].timestamp >= end_ms - candle_ms
+        ):
             return points
-    return []
+        if not best_partial or _covered_duration_ms(points) > _covered_duration_ms(
+            best_partial
+        ):
+            best_partial = points
+    return best_partial
+
+
+def _covered_duration_ms(points: list[PricePoint]) -> int:
+    if not points:
+        return 0
+    return points[-1].timestamp - points[0].timestamp
 
 
 def build_spot_amount_points(
@@ -463,7 +481,7 @@ async def run(
     pair: str = "btc_jpy",
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
-    max_transaction_pages: int = 20,
+    max_transaction_pages: int | None = None,
     neutral_amount: Decimal | str | None = None,
     output_html: Path | str | None = None,
     show: bool = True,
@@ -494,7 +512,7 @@ def main(
     pair: str = "btc_jpy",
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
-    max_transaction_pages: int = 20,
+    max_transaction_pages: int | None = None,
     neutral_amount: Decimal | str | None = None,
     output_html: Path | str | None = None,
     show: bool = True,
@@ -521,28 +539,38 @@ async def _fetch_recent_transactions(
     *,
     start: datetime,
     limit: int,
-    max_pages: int,
+    max_pages: int | None,
 ) -> list[Transaction]:
     rows_by_id: dict[int, Transaction] = {}
-    ending_before: int | None = None
-    for _ in range(max_pages):
-        page = await client.transactions(
+    starting_after: int | None = None
+    pages = 0
+    while max_pages is None or pages < max_pages:
+        payload = await client.transactions_pagination(
             limit=limit,
             order="desc",
-            ending_before=ending_before,
+            starting_after=starting_after,
         )
-        if not page.transactions:
+        page_transactions = _pagination_transactions(payload)
+        if not page_transactions:
             break
-        for transaction in page.transactions:
+        pages += 1
+
+        for transaction in page_transactions:
             rows_by_id[transaction.id] = transaction
-        oldest = min(page.transactions, key=_transaction_time)
+        oldest = min(page_transactions, key=_transaction_time)
         if _transaction_time(oldest) < start:
             break
-        next_ending_before = min(transaction.id for transaction in page.transactions)
-        if ending_before == next_ending_before:
+
+        next_starting_after = min(transaction.id for transaction in page_transactions)
+        if starting_after == next_starting_after:
             break
-        ending_before = next_ending_before
+        starting_after = next_starting_after
     return list(rows_by_id.values())
+
+
+def _pagination_transactions(payload: Any) -> list[Transaction]:
+    rows = payload.get("data") if isinstance(payload, dict) else payload
+    return [Transaction.model_validate(row) for row in (rows or [])]
 
 
 def _balance_amount(balances: dict[str, Decimal], base_asset: str) -> Decimal:
