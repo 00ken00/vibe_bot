@@ -611,14 +611,24 @@ def _previous_bitflyer_lightchart_boundary_ms(timestamp_ms: int) -> int:
 def __main__():
     """Manual local runner.
 
-    Accepted ``candle_minutes`` values by exchange:
-    - bitbank: 1, 5, 15, 30, 60
-    - bitFlyer: 1, 5, 15, 30, 60
-    - GMO: 1, 5, 15, 30, 60
-    - coincheck: 1, 5, 15, 60, 240, 720, 1440
+    Accepted ``candle_minutes`` and practical max days available:
+    - bitbank: 1, 5, 15, 30, 60. This script fetches one daily candle file per
+      requested date, so max days are controlled by exchange retention.
+    - bitFlyer: 1, 5, 15, 30, 60. This script pages lightchart data backward
+      until the requested start time, so max days are controlled by exchange
+      retention.
+    - GMO: 1, 5, 15, 30, 60. This script fetches one daily kline file per
+      requested date, so max days are controlled by exchange retention.
+    - coincheck:
+      * 1: about 0.2 days
+      * 5: about 1.0 days
+      * 15: about 3.1 days
+      * 60: about 12.5 days
+      * 240: about 50 days
+      * 720: about 150 days
+      * 1440: about 300 days
 
-    Coincheck rejects 30-minute candles and caps responses at about 301 rows,
-    so 5-minute Coincheck candles only cover roughly 25 hours.
+    Coincheck rejects 30-minute candles and caps responses at about 301 rows.
     """
 
     left_exchange, left_symbol = "bitbank", "btc_jpy"
