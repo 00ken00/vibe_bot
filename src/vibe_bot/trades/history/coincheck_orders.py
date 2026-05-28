@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -39,6 +40,12 @@ class PricePoint:
 
 
 @dataclass(frozen=True)
+class ProfitPoint:
+    timestamp: int
+    profit: Decimal
+
+
+@dataclass(frozen=True)
 class CoincheckOrdersChartData:
     spot_amounts: list[SpotAmountPoint]
     prices: list[PricePoint]
@@ -47,6 +54,21 @@ class CoincheckOrdersChartData:
     pair: str
     price_source: PriceSource
     candle_minutes: int
+    profit_points: list[ProfitPoint] | None = None
+    neutral_amount: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class CoincheckSpotData:
+    spot_amounts: list[SpotAmountPoint]
+    transactions: list[Transaction]
+
+
+@dataclass
+class PositionLot:
+    side: int
+    amount: Decimal
+    price: Decimal | None
 
 
 DEFAULT_PRICE_SOURCES: tuple[PriceSource, ...] = (
@@ -65,6 +87,7 @@ async def fetch_chart_data(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
     max_transaction_pages: int = 20,
+    neutral_amount: Decimal | str | None = None,
 ) -> CoincheckOrdersChartData:
     """Fetch recent Coincheck spot BTC balance changes and BTC price candles."""
     validate_config(days, candle_minutes)
@@ -75,12 +98,13 @@ async def fetch_chart_data(
     if not price_sources:
         raise ValueError("price_sources must not be empty")
 
+    parsed_neutral_amount = _optional_decimal(neutral_amount)
     end = datetime.now(tz=JST)
     start = end - timedelta(days=days)
     base_asset = pair.split("_", 1)[0].lower()
 
     spot_task = asyncio.create_task(
-        fetch_coincheck_spot_amounts(
+        fetch_coincheck_spot_data(
             pair=pair,
             base_asset=base_asset,
             start=start,
@@ -97,15 +121,29 @@ async def fetch_chart_data(
             end=end,
         )
     )
-    spot_amounts, prices = await asyncio.gather(spot_task, price_task)
-    if not spot_amounts:
+    spot_data, prices = await asyncio.gather(spot_task, price_task)
+    if not spot_data.spot_amounts:
         raise RuntimeError("no Coincheck spot amount points were returned")
     if not prices:
         raise RuntimeError("no BTC price candles were returned")
 
+    profit_points = (
+        build_profit_points(
+            transactions=spot_data.transactions,
+            spot_amounts=spot_data.spot_amounts,
+            neutral_amount=parsed_neutral_amount,
+            base_asset=base_asset,
+            start=start,
+            end=end,
+        )
+        if parsed_neutral_amount is not None
+        else None
+    )
+
     return CoincheckOrdersChartData(
-        spot_amounts=spot_amounts,
+        spot_amounts=spot_data.spot_amounts,
         prices=prices,
+        profit_points=profit_points,
         start=start,
         end=end,
         pair=pair,
@@ -114,6 +152,7 @@ async def fetch_chart_data(
             prices[0].source_symbol,
         ),
         candle_minutes=candle_minutes,
+        neutral_amount=parsed_neutral_amount,
     )
 
 
@@ -126,6 +165,26 @@ async def fetch_coincheck_spot_amounts(
     transaction_limit: int,
     max_transaction_pages: int,
 ) -> list[SpotAmountPoint]:
+    spot_data = await fetch_coincheck_spot_data(
+        pair=pair,
+        base_asset=base_asset,
+        start=start,
+        end=end,
+        transaction_limit=transaction_limit,
+        max_transaction_pages=max_transaction_pages,
+    )
+    return spot_data.spot_amounts
+
+
+async def fetch_coincheck_spot_data(
+    *,
+    pair: str,
+    base_asset: str,
+    start: datetime,
+    end: datetime,
+    transaction_limit: int,
+    max_transaction_pages: int,
+) -> CoincheckSpotData:
     async with CoincheckPrivateClient() as client:
         balance = await client.balance()
         transactions = await _fetch_recent_transactions(
@@ -141,12 +200,15 @@ async def fetch_coincheck_spot_amounts(
         for transaction in transactions
         if transaction.pair == pair and _transaction_time(transaction) <= end
     ]
-    return build_spot_amount_points(
-        current_amount=current_amount,
+    return CoincheckSpotData(
+        spot_amounts=build_spot_amount_points(
+            current_amount=current_amount,
+            transactions=relevant,
+            base_asset=base_asset,
+            start=start,
+            end=end,
+        ),
         transactions=relevant,
-        base_asset=base_asset,
-        start=start,
-        end=end,
     )
 
 
@@ -218,6 +280,67 @@ def build_spot_amount_points(
     return points
 
 
+def build_profit_points(
+    *,
+    transactions: list[Transaction],
+    spot_amounts: list[SpotAmountPoint],
+    neutral_amount: Decimal,
+    base_asset: str,
+    start: datetime,
+    end: datetime,
+) -> list[ProfitPoint]:
+    start_ms = int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    realized_profit = Decimal("0")
+    points: list[ProfitPoint] = [ProfitPoint(start_ms, realized_profit)]
+    lots: deque[PositionLot] = deque()
+
+    initial_position = spot_amounts[0].amount - neutral_amount
+    if initial_position > 0:
+        lots.append(PositionLot(1, initial_position, None))
+    elif initial_position < 0:
+        lots.append(PositionLot(-1, abs(initial_position), None))
+
+    for transaction in sorted(transactions, key=_transaction_time):
+        timestamp = _transaction_time(transaction)
+        timestamp_ms = int(timestamp.timestamp() * 1000)
+        if timestamp_ms < start_ms:
+            continue
+        if timestamp_ms > end_ms:
+            break
+
+        delta = _base_asset_delta(transaction, base_asset)
+        if delta == 0:
+            continue
+
+        price = transaction.rate
+        side = 1 if delta > 0 else -1
+        remaining = abs(delta)
+        points.append(ProfitPoint(timestamp_ms, realized_profit))
+
+        while remaining > 0 and lots and lots[0].side != side:
+            lot = lots[0]
+            close_amount = min(remaining, lot.amount)
+            if lot.price is not None and price is not None:
+                if lot.side > 0:
+                    realized_profit += (price - lot.price) * close_amount
+                else:
+                    realized_profit += (lot.price - price) * close_amount
+
+            lot.amount -= close_amount
+            remaining -= close_amount
+            if lot.amount == 0:
+                lots.popleft()
+
+        if remaining > 0:
+            lots.append(PositionLot(side, remaining, price))
+
+        points.append(ProfitPoint(timestamp_ms, realized_profit))
+
+    points.append(ProfitPoint(end_ms, realized_profit))
+    return points
+
+
 def build_figure(data: CoincheckOrdersChartData) -> go.Figure:
     price_x = [
         datetime.fromtimestamp(point.timestamp / 1000, tz=JST)
@@ -229,14 +352,20 @@ def build_figure(data: CoincheckOrdersChartData) -> go.Figure:
         for point in data.spot_amounts
     ]
     amount_y = [float(point.amount) for point in data.spot_amounts]
+    has_profit = data.profit_points is not None
+    rows = 3 if has_profit else 2
 
     fig = make_subplots(
-        rows=2,
+        rows=rows,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.08,
-        row_heights=[0.58, 0.42],
-        subplot_titles=("BTC Price", "Coincheck Spot BTC Amount"),
+        row_heights=[0.46, 0.27, 0.27] if has_profit else [0.58, 0.42],
+        subplot_titles=(
+            ("BTC Price", "Coincheck Spot BTC Amount", "Realized Profit")
+            if has_profit
+            else ("BTC Price", "Coincheck Spot BTC Amount")
+        ),
     )
     fig.add_trace(
         go.Scatter(
@@ -263,6 +392,33 @@ def build_figure(data: CoincheckOrdersChartData) -> go.Figure:
         row=2,
         col=1,
     )
+    if data.profit_points is not None:
+        profit_x = [
+            datetime.fromtimestamp(point.timestamp / 1000, tz=JST)
+            for point in data.profit_points
+        ]
+        profit_y = [float(point.profit) for point in data.profit_points]
+        fig.add_trace(
+            go.Scatter(
+                x=profit_x,
+                y=profit_y,
+                mode="lines",
+                line_shape="hv",
+                name="Realized profit",
+                line={"color": "#c2410c", "width": 1.8},
+                hovertemplate="%{y:,.0f} JPY<extra></extra>",
+            ),
+            row=3,
+            col=1,
+        )
+
+        fig.add_hline(
+            y=0,
+            line={"color": "#98a2b3", "width": 1, "dash": "dot"},
+            row=3,
+            col=1,
+        )
+
     fig.update_layout(
         title=(
             f"Coincheck Spot BTC Amount and BTC Price "
@@ -272,16 +428,24 @@ def build_figure(data: CoincheckOrdersChartData) -> go.Figure:
         template="plotly_white",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
         margin={"l": 72, "r": 24, "t": 90, "b": 64},
-        height=850,
+        height=1050 if has_profit else 850,
     )
     fig.update_yaxes(title_text="BTC/JPY", tickformat=",", row=1, col=1)
     fig.update_yaxes(title_text="BTC", tickformat=".8f", row=2, col=1)
-    fig.update_xaxes(title_text="Time (JST)", row=2, col=1)
+    if has_profit:
+        fig.update_yaxes(title_text="JPY", tickformat=",", row=3, col=1)
+    fig.update_xaxes(title_text="Time (JST)", row=rows, col=1)
+    annotation_text = (
+        "Spot amount is reconstructed from current Coincheck balance and "
+        "recent Coincheck spot executions."
+    )
+    if data.neutral_amount is not None:
+        annotation_text += (
+            f" Profit treats {data.neutral_amount} BTC as neutral and uses "
+            "observed executions as entries/exits; pre-window entry prices are unknown."
+        )
     fig.add_annotation(
-        text=(
-            "Spot amount is reconstructed from current Coincheck balance and "
-            "recent Coincheck spot executions."
-        ),
+        text=annotation_text,
         xref="paper",
         yref="paper",
         x=0,
@@ -300,6 +464,7 @@ async def run(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
     max_transaction_pages: int = 20,
+    neutral_amount: Decimal | str | None = None,
     output_html: Path | str | None = None,
     show: bool = True,
 ) -> go.Figure:
@@ -310,6 +475,7 @@ async def run(
         price_sources=price_sources,
         transaction_limit=transaction_limit,
         max_transaction_pages=max_transaction_pages,
+        neutral_amount=neutral_amount,
     )
     fig = build_figure(data)
     if output_html is not None:
@@ -329,6 +495,7 @@ def main(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     transaction_limit: int = 100,
     max_transaction_pages: int = 20,
+    neutral_amount: Decimal | str | None = None,
     output_html: Path | str | None = None,
     show: bool = True,
 ) -> go.Figure:
@@ -342,6 +509,7 @@ def main(
             price_sources=price_sources,
             transaction_limit=transaction_limit,
             max_transaction_pages=max_transaction_pages,
+            neutral_amount=neutral_amount,
             output_html=output_html,
             show=show,
         )
@@ -411,5 +579,14 @@ def _transaction_time(transaction: Transaction) -> datetime:
     return parsed.astimezone(JST)
 
 
+def _optional_decimal(value: Decimal | str | None) -> Decimal | None:
+    if value is None:
+        return None
+    amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    if amount < 0:
+        raise ValueError("neutral_amount must be non-negative")
+    return amount
+
+
 if __name__ == "__main__":
-    main(days=3, candle_minutes=5)
+    main(days=10, candle_minutes=5, neutral_amount="0.05")
