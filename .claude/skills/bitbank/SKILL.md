@@ -60,6 +60,10 @@ async with PrivateClient() as p:
 - **Order book sync**: bitbank's `depth_diff` channel only carries ~200 levels around the inside. To keep an accurate book, subscribe to **both** `depth_whole_<pair>` and `depth_diff_<pair>`, buffer diffs by `sequenceId`, and replace + replay on each snapshot. The `sequenceId` is shared across both channels.
 - **Errors**: catch `ApiError` (or its subclasses `AuthError`, `RateLimitError`); they carry bitbank's numeric `code` (e.g. `20005` invalid signature, `10009` rate limited).
 
+## Historical candles
+
+- Accepted `candle_minutes` in `src/vibe_bot/trades/history/history.py`: `1`, `5`, `15`, `30`, `60`.
+
 ## Common recipes
 
 ### Check account state

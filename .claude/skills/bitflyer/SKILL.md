@@ -72,6 +72,11 @@ async with PrivateClient() as p:
 - **Errors**: catch `ApiError` (or its subclasses `AuthError`, `RateLimitError`); they carry bitFlyer's negative `status` (e.g. `-205` invalid signature, `-132` rate limited, `-505` 2FA). `TransportError` wraps httpx errors and prefixes the class (e.g. `ReadTimeout: ...`) so the cause is visible.
 - **Some endpoints are slow** (`/v1/me/getparentorders` without a `parent_order_state` filter, `/v1/me/getbalancehistory` over wide ranges). The default `HttpClient(timeout=10.0)` may bite — pass a larger `timeout=` or always send a state/page filter on those calls.
 
+## Historical candles
+
+- Accepted `candle_minutes` in `src/vibe_bot/trades/history/history.py`: `1`, `5`, `15`, `30`, `60`.
+- For `60` minutes, the helper fetches 30-minute data and aggregates closes to hourly buckets.
+
 ## Common recipes
 
 ### Check account state

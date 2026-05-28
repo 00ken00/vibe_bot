@@ -55,6 +55,11 @@ async with PrivateClient() as p:
 - **Klines `date` param**: `YYYYMMDD` for intraday intervals, `YYYY` for daily-and-up.
 - **Errors**: catch `ApiError` (or its subclasses `AuthError`, `RateLimitError`); they carry GMO's `status` code and `messages` list.
 
+## Historical candles
+
+- Accepted `candle_minutes` in `src/vibe_bot/trades/history/history.py`: `1`, `5`, `15`, `30`, `60`.
+- Use symbol naming carefully: spot uses symbols like `BTC`; some history presets use `BTC_JPY` for leverage-style markets.
+
 ## Common recipes
 
 ### Check account state

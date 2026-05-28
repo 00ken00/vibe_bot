@@ -50,6 +50,20 @@ async with PrivateClient() as p:
 - **Private WebSocket channels must be enabled** on the API key. Standard channels are `order-events` and `execution-events`.
 - **Errors**: catch `ApiError` or its subclasses `AuthError` and `RateLimitError`.
 
+## Historical candles
+
+- Accepted `candle_minutes` in `src/vibe_bot/trades/history/history.py`: `1`, `5`, `15`, `60`, `240`, `720`, `1440`.
+- Coincheck rejects `30`-minute candles.
+- Coincheck's chart endpoint caps responses at about 301 rows, regardless of larger `limit` values. Practical max coverage by interval:
+  - `1`: about 0.2 days
+  - `5`: about 1.0 days
+  - `15`: about 3.1 days
+  - `60`: about 12.5 days
+  - `240`: about 50 days
+  - `720`: about 150 days
+  - `1440`: about 300 days
+- For longer windows in comparison charts, do not silently substitute another exchange for Coincheck unless the user explicitly wants a proxy source; changing the exchange changes the meaning of the spread.
+
 ## Common recipes
 
 ### Public ticker
