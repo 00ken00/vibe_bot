@@ -170,7 +170,10 @@ class ArbitrageTrader:
             return
         self.state.filter = self.filter.update(raw_spread)
         self.state.stage_status = self._stage_status()
-        if abs(self.state.unhedged_position) >= self.config.min_order_size:
+        if (
+            self.config.hedge_enabled
+            and abs(self.state.unhedged_position) >= self.config.min_order_size
+        ):
             if self._in_bitflyer_maintenance_guard():
                 condition = TradeCondition(
                     False,
@@ -228,7 +231,7 @@ class ArbitrageTrader:
         if self._in_bitflyer_maintenance_guard():
             return TradeCondition(False, "bitflyer_maintenance_guard")
         unhedged = abs(self.state.unhedged_position)
-        if unhedged >= self.config.min_order_size:
+        if self.config.hedge_enabled and unhedged >= self.config.min_order_size:
             return TradeCondition(
                 False,
                 "unhedged_position_requires_repair",
@@ -532,7 +535,17 @@ class ArbitrageTrader:
         coincheck_position, coincheck_components = await self._coincheck_strategy_position()
         bitflyer_position, bitflyer_components = await self._bitflyer_strategy_position()
         mismatch = abs(coincheck_position - bitflyer_position)
-        if mismatch >= self.config.min_order_size:
+        payload = {
+            "coincheck_position": coincheck_position,
+            "bitflyer_position": bitflyer_position,
+            "mismatch": mismatch,
+            "tolerance": self.config.min_order_size,
+            "hedge_enabled": self.config.hedge_enabled,
+            "coincheck": coincheck_components,
+            "bitflyer": bitflyer_components,
+        }
+        if self.config.hedge_enabled and mismatch >= self.config.min_order_size:
+            self.logger.event("position_initialization_mismatch", **payload)
             raise RuntimeError(
                 "Coincheck and bitFlyer positions disagree: "
                 f"coincheck={coincheck_position}, bitflyer={bitflyer_position}, mismatch={mismatch}"
@@ -540,10 +553,11 @@ class ArbitrageTrader:
         self.state.coincheck_position = coincheck_position
         self.state.bitflyer_position = bitflyer_position
         self.state.position = coincheck_position
+        if not self.config.hedge_enabled and mismatch >= self.config.min_order_size:
+            self.logger.event("position_initialization_mismatch_ignored", **payload)
         self.logger.event(
             "position_initialized",
-            coincheck=coincheck_components,
-            bitflyer=bitflyer_components,
+            **payload,
             position=self.state.position,
             unhedged_position=self.state.unhedged_position,
         )
@@ -597,20 +611,28 @@ class ArbitrageTrader:
                 slippage_jpy_per_btc=Decimal("0"),
                 order_id="DRY-RUN",
             )
-            self.state.record_bitflyer_order_metric(
-                expected_price=target.bitflyer_expected_price,
-                average_price=target.bitflyer_expected_price,
-                filled_size=target.amount,
-                slippage_jpy_per_btc=Decimal("0"),
-                acceptance_id="DRY-RUN",
-            )
+            if self.config.hedge_enabled:
+                self.state.record_bitflyer_order_metric(
+                    expected_price=target.bitflyer_expected_price,
+                    average_price=target.bitflyer_expected_price,
+                    filled_size=target.amount,
+                    slippage_jpy_per_btc=Decimal("0"),
+                    acceptance_id="DRY-RUN",
+                )
             self._record_trade(
                 target=target,
                 amount=target.amount,
                 coincheck_average_price=target.coincheck_expected_price,
-                bitflyer_average_price=target.bitflyer_expected_price,
+                bitflyer_average_price=(
+                    target.bitflyer_expected_price
+                    if self.config.hedge_enabled
+                    else None
+                ),
                 coincheck_order_id="DRY-RUN",
-                bitflyer_acceptance_id="DRY-RUN",
+                bitflyer_acceptance_id=(
+                    "DRY-RUN" if self.config.hedge_enabled else None
+                ),
+                apply_bitflyer=self.config.hedge_enabled,
             )
             self.state.set_action(
                 BotAction.TRADE_DRY_RUN,
@@ -634,6 +656,40 @@ class ArbitrageTrader:
             order_id=",".join(str(x) for x in coincheck_order_ids),
             unhedged_position=self.state.unhedged_position,
         )
+        if not self.config.hedge_enabled:
+            self.logger.event(
+                "bitflyer_hedge_skipped",
+                reason="hedge_disabled",
+                target=asdict(target),
+                amount=coincheck_amount,
+                unhedged_position=self.state.unhedged_position,
+            )
+            self._record_trade(
+                target=target,
+                amount=coincheck_amount,
+                coincheck_average_price=coincheck_price,
+                bitflyer_average_price=None,
+                coincheck_order_id=",".join(str(x) for x in coincheck_order_ids),
+                bitflyer_acceptance_id=None,
+                apply_coincheck=False,
+                apply_bitflyer=False,
+            )
+            await self._reconcile_late_coincheck_fill(
+                target=target,
+                order_ids=coincheck_order_ids,
+                initial_coincheck_price=coincheck_price,
+                initial_coincheck_amount=coincheck_amount,
+            )
+            self.state.set_action(
+                BotAction.TRADE_PLACED,
+                event_summary(
+                    "trade_placed",
+                    target=asdict(target),
+                    amount=coincheck_amount,
+                    hedge_enabled=False,
+                ),
+            )
+            return
         bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
             await self._execute_bitflyer_hedge(target, coincheck_amount)
         )
@@ -915,6 +971,26 @@ class ArbitrageTrader:
             extra_average_price=extra_price,
             unhedged_position=self.state.unhedged_position,
         )
+        if not self.config.hedge_enabled:
+            self.logger.event(
+                "bitflyer_hedge_skipped",
+                reason="hedge_disabled",
+                target=asdict(target),
+                amount=extra_amount,
+                late_coincheck_fill=True,
+                unhedged_position=self.state.unhedged_position,
+            )
+            self._record_trade(
+                target=target,
+                amount=extra_amount,
+                coincheck_average_price=extra_price,
+                bitflyer_average_price=None,
+                coincheck_order_id=",".join(str(x) for x in order_ids),
+                bitflyer_acceptance_id=None,
+                apply_coincheck=False,
+                apply_bitflyer=False,
+            )
+            return
 
         bitflyer_price, bitflyer_amount, bitflyer_acceptance_id = (
             await self._execute_bitflyer_hedge(target, extra_amount)
@@ -1045,19 +1121,23 @@ class ArbitrageTrader:
         target: TradeTarget,
         amount: Decimal,
         coincheck_average_price: Decimal,
-        bitflyer_average_price: Decimal,
+        bitflyer_average_price: Decimal | None,
         coincheck_order_id: str,
-        bitflyer_acceptance_id: str,
+        bitflyer_acceptance_id: str | None,
         apply_coincheck: bool = True,
+        apply_bitflyer: bool = True,
     ) -> None:
         if apply_coincheck:
             self._apply_coincheck_position(target.action, amount)
-        self._apply_bitflyer_position(target.bitflyer_side, amount)
-        cashflow = (
-            (bitflyer_average_price - coincheck_average_price) * amount
-            if target.action == "BUY"
-            else (coincheck_average_price - bitflyer_average_price) * amount
-        )
+        if apply_bitflyer:
+            self._apply_bitflyer_position(target.bitflyer_side, amount)
+        cashflow = Decimal("0")
+        if apply_bitflyer and bitflyer_average_price is not None:
+            cashflow = (
+                (bitflyer_average_price - coincheck_average_price) * amount
+                if target.action == "BUY"
+                else (coincheck_average_price - bitflyer_average_price) * amount
+            )
         self.state.realized_pnl_jpy += cashflow
         self.state.filled_base += amount
         self.state.trade_count += 1
@@ -1086,6 +1166,8 @@ class ArbitrageTrader:
             unhedged_position=self.state.unhedged_position,
             realized_pnl_jpy=self.state.realized_pnl_jpy,
             dry_run=self.config.dry_run,
+            hedge_enabled=self.config.hedge_enabled,
+            hedge_executed=apply_bitflyer,
         )
 
     def _apply_coincheck_position(self, action: str, amount: Decimal) -> None:

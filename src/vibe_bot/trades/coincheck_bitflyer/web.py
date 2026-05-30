@@ -88,6 +88,7 @@ class WebApp:
             "timestamp": time.time(),
             "uptime_sec": round(uptime, 1),
             "dry_run": self.config.dry_run,
+            "hedge_enabled": self.config.hedge_enabled,
             "gate_threshold_jpy": self.config.gate_threshold_jpy,
             "gate_threshold_offset_jpy": self.config.gate_threshold_offset_jpy,
             "position": self.state.position,

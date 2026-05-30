@@ -38,6 +38,7 @@ class BotConfig:
     gate_bitflyer_maintenance_start_jst: str = "03:59:30"
     gate_bitflyer_maintenance_end_jst: str = "05:00:00"
     dry_run: bool = True
+    hedge_enabled: bool = True
     web_host: str = "0.0.0.0"
     web_port: int = 8765
     ws_port: int = 8766
@@ -132,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir", type=Path, default=Path("logs/trades/coincheck_bitflyer_arbitrage")
     )
     parser.add_argument("--live", action="store_true", help="place real orders")
+    parser.add_argument(
+        "--disable-bitflyer-hedge",
+        action="store_true",
+        help="in live mode, do not place the bitFlyer hedge market order after a Coincheck fill",
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -208,6 +214,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         gate_bitflyer_maintenance_start_jst=args.gate_bitflyer_maintenance_start_jst,
         gate_bitflyer_maintenance_end_jst=args.gate_bitflyer_maintenance_end_jst,
         dry_run=not args.live,
+        hedge_enabled=not args.disable_bitflyer_hedge,
         web_host=args.web_host,
         web_port=args.web_port,
         ws_port=args.ws_port,

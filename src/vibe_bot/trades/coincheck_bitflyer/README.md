@@ -26,6 +26,17 @@ Live:
 python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage --live
 ```
 
+To place live Coincheck orders without sending bitFlyer hedge orders:
+
+```bash
+python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage \
+  --live \
+  --disable-bitflyer-hedge
+```
+
+In this mode, the bot tracks the resulting unhedged Coincheck position but
+does not block new Coincheck trades or attempt bitFlyer repair orders.
+
 The web monitor defaults to:
 
 ```text

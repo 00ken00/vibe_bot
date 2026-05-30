@@ -45,6 +45,8 @@ class TradeLogger:
             "unhedged_position",
             "realized_pnl_jpy",
             "dry_run",
+            "hedge_enabled",
+            "hedge_executed",
         ]
         if self.trades_path.exists() and self.trades_path.stat().st_size > 0:
             with self.trades_path.open(newline="") as f:
