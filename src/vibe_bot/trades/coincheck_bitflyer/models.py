@@ -76,7 +76,9 @@ class StageStatus:
     next_stage: int | None = 1
     stage_size: Decimal = Decimal("0")
     max_stages: int = 0
+    max_short_stages: int = 0
     max_position: Decimal = Decimal("0")
+    min_position: Decimal = Decimal("0")
     long_open_trigger: Decimal | None = None
     long_close_trigger: Decimal | None = None
     short_open_trigger: Decimal | None = None

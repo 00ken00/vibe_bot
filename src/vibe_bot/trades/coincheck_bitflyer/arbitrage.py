@@ -375,11 +375,17 @@ class ArbitrageTrader:
         sell_open_trigger = self.config.gate_threshold_offset_jpy + self.config.gate_threshold_jpy
         buy_edge = buy_open_trigger - buy_price
         sell_edge = sell_price - sell_open_trigger
-        if buy_edge <= 0 and sell_edge <= 0:
+        can_open_long = stage.long_open_trigger is not None
+        can_open_short = stage.short_open_trigger is not None
+        if (not can_open_long or buy_edge <= 0) and (
+            not can_open_short or sell_edge <= 0
+        ):
             return None
         assert stage.next_open_amount is not None
-        if sell_edge > buy_edge:
+        if can_open_short and sell_edge > buy_edge:
             return self._build_target("SELL", sell_open_trigger, stage.next_open_amount, 1)
+        if not can_open_long:
+            return None
         return self._build_target("BUY", buy_open_trigger, stage.next_open_amount, 1)
 
     def _build_target(
@@ -456,6 +462,11 @@ class ArbitrageTrader:
         current_stage = self._ceil_stage(abs_position) if abs_position > 0 else 0
         next_stage = self._next_stage(abs_position)
         can_open_next = next_stage <= self.config.max_stages
+        max_short_stages = min(
+            self.config.max_stages,
+            int(self.config.coincheck_neutral_spot_amount // self.config.stage_size),
+        )
+        can_open_short_next = can_open_next and next_stage <= max_short_stages
         next_open_amount = (
             self._open_stage_amount(abs_position, next_stage) if can_open_next else None
         )
@@ -471,7 +482,7 @@ class ArbitrageTrader:
         if can_open_next:
             if position >= 0:
                 long_open_trigger = offset - Decimal(next_stage) * threshold
-            if position <= 0:
+            if position <= 0 and can_open_short_next:
                 short_open_trigger = offset + Decimal(next_stage) * threshold
         return StageStatus(
             position=position,
@@ -479,7 +490,9 @@ class ArbitrageTrader:
             next_stage=next_stage if can_open_next else None,
             stage_size=self.config.stage_size,
             max_stages=self.config.max_stages,
+            max_short_stages=max_short_stages,
             max_position=self.config.max_position,
+            min_position=-self.config.coincheck_neutral_spot_amount,
             long_open_trigger=long_open_trigger,
             long_close_trigger=(
                 offset - Decimal(current_stage - 1) * threshold

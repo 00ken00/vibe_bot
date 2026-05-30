@@ -107,6 +107,17 @@ python3 -m vibe_bot.trades.coincheck_bitflyer.arbitrage \
 If the actual Coincheck BTC balance is `1.0`, the bot treats the Coincheck leg
 as `-0.2 BTC` relative to the neutral inventory.
 
+Short-opening stages are limited so they cannot sell the actual Coincheck spot
+balance below zero. For example, with a neutral amount of `0.03 BTC`, a stage
+size of `0.01 BTC`, and `5` maximum stages, the available strategy stages are:
+
+```text
+-3, -2, -1, 0, 1, 2, 3, 4, 5
+```
+
+At stage `-3`, the bot can still buy to close the short strategy position, but
+it does not expose a trigger to open another short stage.
+
 ## Execution Notes
 
 Coincheck does not expose the same FAK limit order behavior as GMO. The bot
