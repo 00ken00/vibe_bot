@@ -909,8 +909,15 @@ class ArbitrageTrader:
     async def _repair_unhedged_position(self) -> None:
         quote = self.state.quote
         assert quote.ready
+        await self._reconcile_bitflyer_position_before_repair()
         hedge_amount = abs(self.state.unhedged_position)
         if hedge_amount < self.config.bitflyer_min_order_size:
+            self.logger.event(
+                "bitflyer_hedge_repair_not_needed",
+                bitbank_position=self.state.bitbank_position,
+                bitflyer_position=self.state.bitflyer_position,
+                unhedged_position=self.state.unhedged_position,
+            )
             return
         if self.state.unhedged_position > 0:
             side = "SELL"
@@ -967,6 +974,33 @@ class ArbitrageTrader:
             bitbank_position=self.state.bitbank_position,
             bitflyer_position=self.state.bitflyer_position,
             unhedged_position=self.state.unhedged_position,
+        )
+
+    async def _reconcile_bitflyer_position_before_repair(self) -> None:
+        actual_position, components = await self._bitflyer_strategy_position()
+        previous_position = self.state.bitflyer_position
+        if actual_position == previous_position:
+            self.logger.event(
+                "bitflyer_position_reconciled",
+                changed=False,
+                bitflyer_position=actual_position,
+                bitflyer=components,
+            )
+            return
+
+        self.state.bitflyer_position = actual_position
+        self.state.bitflyer_cost_basis_ready = actual_position == 0
+        self.state.bitflyer_open_cost_jpy = Decimal("0")
+        self.logger.event(
+            "bitflyer_position_reconciled",
+            changed=True,
+            previous_bitflyer_position=previous_position,
+            bitflyer_position=actual_position,
+            bitbank_position=self.state.bitbank_position,
+            unhedged_position=self.state.unhedged_position,
+            bitflyer_cost_basis_ready=self.state.bitflyer_cost_basis_ready,
+            reason="reconcile_before_hedge_repair",
+            bitflyer=components,
         )
 
     async def _execution_summary(
