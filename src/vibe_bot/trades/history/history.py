@@ -642,7 +642,7 @@ def __main__():
         left_symbol=left_symbol,
         right_exchange=right_exchange,
         right_symbol=right_symbol,
-        days=5,
-        candle_minutes=60,
+        days=3,
+        candle_minutes=15,
         # candle_minutes=5,
     )
