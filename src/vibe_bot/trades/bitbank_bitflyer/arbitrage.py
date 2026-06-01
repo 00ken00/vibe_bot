@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from dotenv import load_dotenv
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
+from vibe_bot.bitbank.models import Order as BitbankOrder
 from vibe_bot.bitbank.models import PositionSide as BitbankPositionSide
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
 from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
@@ -470,7 +471,16 @@ class ArbitrageTrader:
         }
 
     async def _replace_maker(self, target: MakerOrder) -> None:
+        previous_position = self.state.position
         await self._cancel_active_maker("replace")
+        if self.state.position != previous_position:
+            self.logger.event(
+                "maker_replace_deferred",
+                reason="position_changed_during_cancel",
+                previous_position=previous_position,
+                position=self.state.position,
+            )
+            return
         if self.config.dry_run:
             target.order_id = "DRY-RUN"
             self.state.active_maker = target
@@ -522,7 +532,6 @@ class ArbitrageTrader:
         maker = self.state.active_maker
         if maker is None:
             return
-        self.state.active_maker = None
         self.state.set_action(
             BotAction.CANCELING_MAKER,
             event_summary(
@@ -533,6 +542,7 @@ class ArbitrageTrader:
             ),
         )
         if self.config.dry_run or maker.order_id in (None, "DRY-RUN"):
+            self.state.active_maker = None
             self.logger.event("maker_removed", reason=reason, dry_run=True, maker=asdict(maker))
             self.state.set_action(
                 BotAction.CANCELED_MAKER,
@@ -543,15 +553,38 @@ class ArbitrageTrader:
             return
         assert self._bb_private is not None
         try:
-            await self._bb_private.cancel_order(
+            order = await self._bb_private.cancel_order(
                 pair=self.config.bitbank_pair, order_id=maker.order_id
             )
-            self.logger.event("maker_canceled", reason=reason, maker=asdict(maker))
-            self.state.set_action(
-                BotAction.CANCELED_MAKER,
-                event_summary("maker_canceled", reason=reason, maker=asdict(maker)),
-            )
         except Exception as exc:
+            try:
+                order = await self._bb_private.order_info(
+                    pair=self.config.bitbank_pair, order_id=maker.order_id
+                )
+                await self._reconcile_maker_order(maker, order)
+            except Exception:
+                self.logger.event(
+                    "maker_cancel_failed", reason=reason, error=str(exc), maker=asdict(maker)
+                )
+                self.state.set_action(
+                    BotAction.CANCEL_FAILED,
+                    event_summary(
+                        "maker_cancel_failed",
+                        reason=reason,
+                        error=str(exc),
+                        maker=asdict(maker),
+                    ),
+                )
+                raise exc
+            if self.state.active_maker is None:
+                self.logger.event(
+                    "maker_cancel_reconciled",
+                    reason=reason,
+                    cancel_error=str(exc),
+                    order_status=order.status,
+                    maker=asdict(maker),
+                )
+                return
             self.logger.event(
                 "maker_cancel_failed", reason=reason, error=str(exc), maker=asdict(maker)
             )
@@ -565,6 +598,16 @@ class ArbitrageTrader:
                 ),
             )
             raise
+        await self._reconcile_maker_order(maker, order)
+        self.logger.event(
+            "maker_canceled", reason=reason, order_status=order.status, maker=asdict(maker)
+        )
+        self.state.set_action(
+            BotAction.CANCELED_MAKER,
+            event_summary(
+                "maker_canceled", reason=reason, order_status=order.status, maker=asdict(maker)
+            ),
+        )
 
     async def _refresh_active_maker(self) -> None:
         maker = self.state.active_maker
@@ -574,6 +617,11 @@ class ArbitrageTrader:
         order = await self._bb_private.order_info(
             pair=self.config.bitbank_pair, order_id=maker.order_id
         )
+        await self._reconcile_maker_order(maker, order)
+
+    async def _reconcile_maker_order(
+        self, maker: MakerOrder, order: BitbankOrder
+    ) -> None:
         delta = order.executed_amount - maker.executed_amount
         maker.executed_amount = order.executed_amount
         if delta > 0:
@@ -596,7 +644,8 @@ class ArbitrageTrader:
             )
             await self._hedge_fill(maker, delta, fill_price)
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):
-            self.state.active_maker = None
+            if self.state.active_maker is maker:
+                self.state.active_maker = None
             self.logger.event("maker_done", status=order.status, maker=asdict(maker))
 
     def _apply_bitbank_pnl(
