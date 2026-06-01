@@ -13,7 +13,5 @@ pull-remote:
 update-remote-env:
 	scp .env vibe-bot:vibe_bot/.env
 
-sync-coincheck-bitflyer-arbitrage-logs:
-	rsync -avP \
-		vibe-bot:~/vibe_bot/logs/trades/coincheck_bitflyer_arbitrage/ \
-		./logs/trades/coincheck_bitflyer_arbitrage/
+sync-trades-logs:
+	rsync -avP vibe-bot:~/vibe_bot/logs/trades/ ./logs/trades/
