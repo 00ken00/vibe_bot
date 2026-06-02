@@ -50,7 +50,7 @@ class PrivateWebSocket:
         request_timeout: float = 310.0,
         reconnect_delay: float = 1.0,
         max_reconnect_delay: float = 30.0,
-        uuid: str = "vibe-bot",
+        uuid: str | None = None,
     ) -> None:
         self._client = private_client or PrivateClient()
         self._owns_client = private_client is None
@@ -135,7 +135,7 @@ class PrivateWebSocket:
             url = f"{self._base_url}/v2/subscribe/{self._sub_key}/{self._channel}/0"
             params: dict[str, Any] = {
                 "tt": self._timetoken,
-                "uuid": self._uuid,
+                "uuid": self._uuid or self._channel,
                 "auth": self._token,
             }
             if self._region is not None:
@@ -153,6 +153,8 @@ class PrivateWebSocket:
                 # Token expired or revoked: re-mint and retry.
                 logger.info("pubnub returned 403 — re-minting subscribe token")
                 self._token = None
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, self._max_reconnect_delay)
                 continue
             if resp.status_code != 200:
                 logger.warning(

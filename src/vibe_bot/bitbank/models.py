@@ -142,6 +142,7 @@ class Order(_Base):
     user_cancelable: bool | None = None
     average_price: Decimal | None = None
     ordered_at: int
+    executed_at: int | None = None
     expire_at: int | None = None
     triggered_at: int | None = None
     trigger_price: Decimal | None = None
