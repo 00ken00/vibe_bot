@@ -6,7 +6,7 @@ import signal
 import time
 from collections.abc import Iterable
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
 
 from dotenv import load_dotenv
@@ -39,6 +39,21 @@ LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.arbitrage")
 def _jst_time_seconds() -> int:
     now = datetime.now(JST)
     return now.hour * 3600 + now.minute * 60 + now.second
+
+
+def _elapsed_ms(start: datetime | None, end: datetime | None) -> float | None:
+    if start is None or end is None:
+        return None
+    return (end - start).total_seconds() * 1000
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _bitflyer_execution_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 class ArbitrageTrader:
@@ -625,10 +640,12 @@ class ArbitrageTrader:
         delta = order.executed_amount - maker.executed_amount
         maker.executed_amount = order.executed_amount
         if delta > 0:
+            bitbank_fill_notice_time = datetime.now(JST)
             fill_price = order.average_price or maker.price
             fill_event = {
                 "maker": asdict(maker),
                 "bitbank_order_id": maker.order_id,
+                "bitbank_fill_notice_timestamp": bitbank_fill_notice_time.isoformat(),
                 "fill_amount": delta,
                 "cumulative_executed_amount": maker.executed_amount,
                 "fill_price": fill_price,
@@ -642,7 +659,7 @@ class ArbitrageTrader:
                 "maker_filled",
                 **fill_event,
             )
-            await self._hedge_fill(maker, delta, fill_price)
+            await self._hedge_fill(maker, delta, fill_price, bitbank_fill_notice_time)
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):
             if self.state.active_maker is maker:
                 self.state.active_maker = None
@@ -786,7 +803,11 @@ class ArbitrageTrader:
         return realized
 
     async def _hedge_fill(
-        self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal
+        self,
+        maker: MakerOrder,
+        amount: Decimal,
+        bitbank_fill_price: Decimal,
+        bitbank_fill_notice_time: datetime,
     ) -> None:
         bitbank_fill_pnl = self._apply_bitbank_pnl(maker, amount, bitbank_fill_price)
         if maker.action == "BUY":
@@ -818,6 +839,11 @@ class ArbitrageTrader:
         hedge_executed_amount = Decimal("0")
         hedge_executed = False
         bitflyer_fill_pnl = Decimal("0")
+        bitflyer_hedge_request_time: datetime | None = None
+        bitflyer_hedge_acceptance_time: datetime | None = None
+        bitflyer_execution_time: datetime | None = None
+        bitflyer_hedge_confirmation_time: datetime | None = None
+        bitflyer_child_order_acceptance_id: str | None = None
         if (
             not self.config.dry_run
             and self.config.hedge_enabled
@@ -826,10 +852,16 @@ class ArbitrageTrader:
         ):
             assert self._bf_private is not None
             assert bitflyer_side is not None
+            bitflyer_hedge_request_time = datetime.now(JST)
             self.logger.event(
                 "bitflyer_hedge_attempt",
                 side=bitflyer_side,
                 amount=hedge_amount,
+                bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+                bitflyer_hedge_request_timestamp=bitflyer_hedge_request_time.isoformat(),
+                notice_to_hedge_request_ms=_elapsed_ms(
+                    bitbank_fill_notice_time, bitflyer_hedge_request_time
+                ),
                 bitbank_position=self.state.bitbank_position,
                 bitflyer_position=self.state.bitflyer_position,
                 unhedged_position=self.state.unhedged_position,
@@ -841,9 +873,25 @@ class ArbitrageTrader:
                 size=hedge_amount,
                 time_in_force="IOC",
             )
-            actual_hedge_price, hedge_executed_amount = await self._execution_summary(
+            bitflyer_hedge_acceptance_time = datetime.now(JST)
+            bitflyer_child_order_acceptance_id = ack.child_order_acceptance_id
+            self.logger.event(
+                "bitflyer_hedge_accepted",
+                child_order_acceptance_id=bitflyer_child_order_acceptance_id,
+                bitflyer_hedge_request_timestamp=bitflyer_hedge_request_time.isoformat(),
+                bitflyer_hedge_acceptance_timestamp=bitflyer_hedge_acceptance_time.isoformat(),
+                hedge_request_to_acceptance_ms=_elapsed_ms(
+                    bitflyer_hedge_request_time, bitflyer_hedge_acceptance_time
+                ),
+            )
+            (
+                actual_hedge_price,
+                hedge_executed_amount,
+                bitflyer_execution_time,
+            ) = await self._execution_summary(
                 ack.child_order_acceptance_id, fallback=expected_hedge_price
             )
+            bitflyer_hedge_confirmation_time = datetime.now(JST)
             if hedge_executed_amount > 0:
                 bitflyer_fill_pnl = self._apply_bitflyer_pnl(
                     bitflyer_side, hedge_executed_amount, actual_hedge_price
@@ -858,6 +906,27 @@ class ArbitrageTrader:
                     side=bitflyer_side,
                     executed_amount=hedge_executed_amount,
                     average_price=actual_hedge_price,
+                    child_order_acceptance_id=ack.child_order_acceptance_id,
+                    bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+                    bitflyer_hedge_request_timestamp=bitflyer_hedge_request_time.isoformat(),
+                    bitflyer_hedge_acceptance_timestamp=bitflyer_hedge_acceptance_time.isoformat(),
+                    bitflyer_execution_timestamp=_iso_or_none(bitflyer_execution_time),
+                    bitflyer_hedge_confirmation_timestamp=bitflyer_hedge_confirmation_time.isoformat(),
+                    notice_to_hedge_request_ms=_elapsed_ms(
+                        bitbank_fill_notice_time, bitflyer_hedge_request_time
+                    ),
+                    hedge_request_to_acceptance_ms=_elapsed_ms(
+                        bitflyer_hedge_request_time, bitflyer_hedge_acceptance_time
+                    ),
+                    hedge_request_to_execution_ms=_elapsed_ms(
+                        bitflyer_hedge_request_time, bitflyer_execution_time
+                    ),
+                    hedge_execution_to_confirmation_ms=_elapsed_ms(
+                        bitflyer_execution_time, bitflyer_hedge_confirmation_time
+                    ),
+                    notice_to_hedge_execution_ms=_elapsed_ms(
+                        bitbank_fill_notice_time, bitflyer_execution_time
+                    ),
                     bitbank_position=self.state.bitbank_position,
                     bitflyer_position=self.state.bitflyer_position,
                     unhedged_position=self.state.unhedged_position,
@@ -935,6 +1004,29 @@ class ArbitrageTrader:
             bitflyer_side=bitflyer_side,
             bitflyer_expected_price=expected_hedge_price,
             bitflyer_average_price=actual_hedge_price,
+            bitflyer_child_order_acceptance_id=bitflyer_child_order_acceptance_id,
+            bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+            bitflyer_hedge_request_timestamp=_iso_or_none(bitflyer_hedge_request_time),
+            bitflyer_hedge_acceptance_timestamp=_iso_or_none(bitflyer_hedge_acceptance_time),
+            bitflyer_execution_timestamp=_iso_or_none(bitflyer_execution_time),
+            bitflyer_hedge_confirmation_timestamp=_iso_or_none(
+                bitflyer_hedge_confirmation_time
+            ),
+            notice_to_hedge_request_ms=_elapsed_ms(
+                bitbank_fill_notice_time, bitflyer_hedge_request_time
+            ),
+            hedge_request_to_acceptance_ms=_elapsed_ms(
+                bitflyer_hedge_request_time, bitflyer_hedge_acceptance_time
+            ),
+            hedge_request_to_execution_ms=_elapsed_ms(
+                bitflyer_hedge_request_time, bitflyer_execution_time
+            ),
+            hedge_execution_to_confirmation_ms=_elapsed_ms(
+                bitflyer_execution_time, bitflyer_hedge_confirmation_time
+            ),
+            notice_to_hedge_execution_ms=_elapsed_ms(
+                bitbank_fill_notice_time, bitflyer_execution_time
+            ),
             slippage_jpy=slippage,
             cashflow_jpy=cashflow,
             position=self.state.position,
@@ -992,7 +1084,7 @@ class ArbitrageTrader:
             size=hedge_amount,
             time_in_force="IOC",
         )
-        average_price, executed_amount = await self._execution_summary(
+        average_price, executed_amount, _ = await self._execution_summary(
             ack.child_order_acceptance_id, fallback=expected_price
         )
         if executed_amount == 0:
@@ -1054,7 +1146,7 @@ class ArbitrageTrader:
 
     async def _execution_summary(
         self, acceptance_id: str, fallback: Decimal
-    ) -> tuple[Decimal, Decimal]:
+    ) -> tuple[Decimal, Decimal, datetime | None]:
         assert self._bf_private is not None
         deadline = time.time() + 3.0
         while time.time() < deadline:
@@ -1066,9 +1158,13 @@ class ArbitrageTrader:
                 total_size = sum((e.size for e in executions), Decimal("0"))
                 if total_size > 0:
                     total_notional = sum((e.price * e.size for e in executions), Decimal("0"))
-                    return total_notional / total_size, total_size
+                    latest_execution = max(
+                        _bitflyer_execution_time(e.exec_date)
+                        for e in executions
+                    )
+                    return total_notional / total_size, total_size, latest_execution
             await asyncio.sleep(0.25)
-        return fallback, Decimal("0")
+        return fallback, Decimal("0"), None
 
 
 async def run_bot(config: BotConfig) -> None:
