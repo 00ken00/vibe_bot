@@ -167,7 +167,7 @@ class ArbitrageTrader:
     ) -> None:
         message = payload.get("message")
         if not isinstance(message, dict):
-            return
+            message = payload
         method = str(message.get("method") or "")
         if method not in {"spot_order_new", "spot_order"}:
             return
