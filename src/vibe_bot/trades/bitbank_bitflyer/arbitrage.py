@@ -536,13 +536,20 @@ class ArbitrageTrader:
             elif position.position_side == "short":
                 margin_short += open_amount
 
-        net_position = spot_amount + margin_long - margin_short
-        return net_position, {
+        strategy_position = (
+            spot_amount
+            - self.config.bitbank_neutral_spot_amount
+            + margin_long
+            - margin_short
+        )
+        return strategy_position, {
             "pair": self.config.bitbank_pair,
             "base_asset": base_asset,
             "spot_onhand_amount": spot_amount,
+            "neutral_spot_amount": self.config.bitbank_neutral_spot_amount,
             "margin_long_open_amount": margin_long,
             "margin_short_open_amount": margin_short,
+            "strategy_position": strategy_position,
         }
 
     async def _bitflyer_strategy_position(

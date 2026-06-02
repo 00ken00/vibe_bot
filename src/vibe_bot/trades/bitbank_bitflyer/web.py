@@ -92,6 +92,7 @@ class WebApp:
             "hedge_enabled": self.config.hedge_enabled,
             "threshold_jpy": self.config.threshold_jpy,
             "threshold_offset_jpy": self.config.threshold_offset_jpy,
+            "bitbank_neutral_spot_amount": self.config.bitbank_neutral_spot_amount,
             "position": self.state.position,
             "bitbank_position": self.state.bitbank_position,
             "bitflyer_position": self.state.bitflyer_position,
