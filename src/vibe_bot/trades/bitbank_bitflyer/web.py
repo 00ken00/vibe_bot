@@ -93,6 +93,7 @@ class WebApp:
             "threshold_jpy": self.config.threshold_jpy,
             "threshold_offset_jpy": self.config.threshold_offset_jpy,
             "bitbank_neutral_spot_amount": self.config.bitbank_neutral_spot_amount,
+            "bitflyer_neutral_position_amount": self.config.bitflyer_neutral_position_amount,
             "position": self.state.position,
             "bitbank_position": self.state.bitbank_position,
             "bitflyer_position": self.state.bitflyer_position,

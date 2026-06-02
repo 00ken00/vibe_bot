@@ -19,6 +19,7 @@ class BotConfig:
     bitbank_pair: str = "btc_jpy"
     bitflyer_product_code: str = "FX_BTC_JPY"
     bitbank_neutral_spot_amount: Decimal = Decimal("0")
+    bitflyer_neutral_position_amount: Decimal = Decimal("0")
     threshold_jpy: Decimal = Decimal("1000")
     threshold_offset_jpy: Decimal = Decimal("0")
     order_size: Decimal = Decimal("0.001")
@@ -121,6 +122,15 @@ def build_parser() -> argparse.ArgumentParser:
             "strategy position = spot balance - this amount + net margin position"
         ),
     )
+    parser.add_argument(
+        "--bitflyer-neutral-position-amount",
+        type=decimal_arg,
+        default=Decimal("0"),
+        help=(
+            "signed bitFlyer position amount treated as strategy-neutral; "
+            "positive means short, negative means long"
+        ),
+    )
     parser.add_argument("--web-host", default="0.0.0.0")
     parser.add_argument("--web-port", type=int, default=8765)
     parser.add_argument("--ws-port", type=int, default=8766)
@@ -169,6 +179,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         bitbank_pair=args.bitbank_pair,
         bitflyer_product_code=args.bitflyer_product_code,
         bitbank_neutral_spot_amount=args.bitbank_neutral_spot_amount,
+        bitflyer_neutral_position_amount=args.bitflyer_neutral_position_amount,
         threshold_jpy=args.threshold_jpy,
         threshold_offset_jpy=args.threshold_offset_jpy,
         order_size=args.order_size,

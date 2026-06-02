@@ -567,10 +567,14 @@ class ArbitrageTrader:
             elif position.side == "SELL":
                 short_amount += position.size
         net_position = short_amount - long_amount
-        return net_position, {
+        strategy_position = net_position - self.config.bitflyer_neutral_position_amount
+        return strategy_position, {
             "product_code": self.config.bitflyer_product_code,
             "long_open_amount": long_amount,
             "short_open_amount": short_amount,
+            "net_position": net_position,
+            "neutral_position_amount": self.config.bitflyer_neutral_position_amount,
+            "strategy_position": strategy_position,
         }
 
     async def _replace_maker(self, target: MakerOrder) -> None:
