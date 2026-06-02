@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import secrets
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -42,6 +43,11 @@ def jst_iso(ts: float | None = None) -> str:
 
 def local_date_stamp() -> str:
     return datetime.now(JST).strftime("%Y%m%d")
+
+
+def local_run_id() -> str:
+    timestamp = datetime.now(JST).strftime("%Y%m%d-%H%M%S")
+    return f"{timestamp}-{secrets.token_hex(4)}"
 
 
 def quantize_down(value: Decimal, tick: Decimal) -> Decimal:
