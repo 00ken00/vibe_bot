@@ -567,7 +567,7 @@ class ArbitrageTrader:
             elif position.side == "SELL":
                 short_amount += position.size
         net_position = short_amount - long_amount
-        strategy_position = net_position - self.config.bitflyer_neutral_position_amount
+        strategy_position = net_position + self.config.bitflyer_neutral_position_amount
         return strategy_position, {
             "product_code": self.config.bitflyer_product_code,
             "long_open_amount": long_amount,

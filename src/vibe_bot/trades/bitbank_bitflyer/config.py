@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=Decimal("0"),
         help=(
             "signed bitFlyer position amount treated as strategy-neutral; "
-            "positive means short, negative means long"
+            "negative means short, positive means long"
         ),
     )
     parser.add_argument("--web-host", default="0.0.0.0")
