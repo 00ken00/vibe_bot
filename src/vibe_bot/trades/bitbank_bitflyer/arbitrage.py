@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from dotenv import load_dotenv
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
+from vibe_bot.bitbank import PrivateWebSocket as BitbankPrivateWebSocket
 from vibe_bot.bitbank.models import Order as BitbankOrder
 from vibe_bot.bitbank.models import PositionSide as BitbankPositionSide
 from vibe_bot.bitflyer import PrivateClient as BitflyerPrivateClient
@@ -56,6 +57,12 @@ def _bitflyer_execution_time(value: str) -> datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
+def _millisecond_timestamp(value: int | None) -> datetime | None:
+    if value is None or value <= 0:
+        return None
+    return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+
+
 class ArbitrageTrader:
     """Runs the arbitrage decision loop and optional live execution.
 
@@ -71,6 +78,8 @@ class ArbitrageTrader:
         self.logger = logger
         self._bb_private: BitbankPrivateClient | None = None
         self._bf_private: BitflyerPrivateClient | None = None
+        self._bb_private_stream_task: asyncio.Task[None] | None = None
+        self._maker_reconcile_lock = asyncio.Lock()
         self._shutdown_started = False
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -90,6 +99,9 @@ class ArbitrageTrader:
                     self.logger.event("error", message=self.state.last_error)
                     stop.set()
                     raise
+                self._bb_private_stream_task = asyncio.create_task(
+                    self._run_bitbank_private_stream(stop)
+                )
             self.state.stage_status = self._stage_status()
             while not stop.is_set():
                 try:
@@ -101,6 +113,7 @@ class ArbitrageTrader:
                     LOGGER.exception("trader tick failed")
                 await asyncio.sleep(self.config.maker_update_interval)
         finally:
+            await self._stop_bitbank_private_stream()
             await self.shutdown("shutdown")
 
     async def shutdown(self, reason: str) -> None:
@@ -108,6 +121,7 @@ class ArbitrageTrader:
             return
         self._shutdown_started = True
         self.logger.event("trader_shutdown_started", reason=reason)
+        await self._stop_bitbank_private_stream()
         try:
             await self._cancel_active_maker(reason)
         except Exception as exc:
@@ -122,6 +136,73 @@ class ArbitrageTrader:
                 await self._bf_private.aclose()
                 self._bf_private = None
             self.logger.event("trader_shutdown_finished", reason=reason)
+
+    async def _stop_bitbank_private_stream(self) -> None:
+        task = self._bb_private_stream_task
+        if task is None:
+            return
+        self._bb_private_stream_task = None
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _run_bitbank_private_stream(self, stop: asyncio.Event) -> None:
+        assert self._bb_private is not None
+        while not stop.is_set():
+            try:
+                async with BitbankPrivateWebSocket(private_client=self._bb_private) as ws:
+                    self.logger.event("bitbank_private_ws_connected")
+                    async for payload in ws.messages():
+                        if stop.is_set():
+                            return
+                        await self._handle_bitbank_private_ws_message(payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.logger.event("bitbank_private_ws_error", error=str(exc))
+                LOGGER.exception("bitbank private stream failed")
+                await asyncio.sleep(1.0)
+
+    async def _handle_bitbank_private_ws_message(
+        self, payload: dict[str, object]
+    ) -> None:
+        message = payload.get("message")
+        if not isinstance(message, dict):
+            return
+        method = str(message.get("method") or "")
+        if method not in {"spot_order_new", "spot_order"}:
+            return
+        params = message.get("params")
+        if not isinstance(params, list):
+            return
+        for row in params:
+            if not isinstance(row, dict):
+                continue
+            try:
+                order = BitbankOrder.model_validate(row)
+            except Exception as exc:
+                self.logger.event(
+                    "bitbank_private_ws_order_invalid",
+                    method=method,
+                    error=str(exc),
+                    payload=row,
+                )
+                continue
+            async with self._maker_reconcile_lock:
+                maker = self.state.active_maker
+                if maker is None or str(order.order_id) != maker.order_id:
+                    self.logger.event(
+                        "bitbank_private_ws_order_ignored",
+                        method=method,
+                        bitbank_order_id=order.order_id,
+                        order_status=order.status,
+                        reason="not_active_maker",
+                    )
+                    continue
+                await self._reconcile_maker_order_locked(
+                    maker,
+                    order,
+                    detection_source=f"private_ws_{method}",
+                )
 
     async def _tick(self) -> None:
         quote = self.state.quote
@@ -576,7 +657,11 @@ class ArbitrageTrader:
                 order = await self._bb_private.order_info(
                     pair=self.config.bitbank_pair, order_id=maker.order_id
                 )
-                await self._reconcile_maker_order(maker, order)
+                await self._reconcile_maker_order(
+                    maker,
+                    order,
+                    detection_source="fallback_order_info_after_cancel_error",
+                )
             except Exception:
                 self.logger.event(
                     "maker_cancel_failed", reason=reason, error=str(exc), maker=asdict(maker)
@@ -613,7 +698,11 @@ class ArbitrageTrader:
                 ),
             )
             raise
-        await self._reconcile_maker_order(maker, order)
+        await self._reconcile_maker_order(
+            maker,
+            order,
+            detection_source="cancel_order_response",
+        )
         self.logger.event(
             "maker_canceled", reason=reason, order_status=order.status, maker=asdict(maker)
         )
@@ -632,20 +721,58 @@ class ArbitrageTrader:
         order = await self._bb_private.order_info(
             pair=self.config.bitbank_pair, order_id=maker.order_id
         )
-        await self._reconcile_maker_order(maker, order)
+        await self._reconcile_maker_order(
+            maker,
+            order,
+            detection_source="fallback_order_info_poll",
+        )
 
     async def _reconcile_maker_order(
-        self, maker: MakerOrder, order: BitbankOrder
+        self,
+        maker: MakerOrder,
+        order: BitbankOrder,
+        *,
+        detection_source: str,
+    ) -> None:
+        async with self._maker_reconcile_lock:
+            await self._reconcile_maker_order_locked(
+                maker,
+                order,
+                detection_source=detection_source,
+            )
+
+    async def _reconcile_maker_order_locked(
+        self,
+        maker: MakerOrder,
+        order: BitbankOrder,
+        *,
+        detection_source: str,
     ) -> None:
         delta = order.executed_amount - maker.executed_amount
+        if delta < 0:
+            self.logger.event(
+                "maker_reconcile_stale",
+                bitbank_order_id=maker.order_id,
+                bitbank_fill_detection_source=detection_source,
+                maker_executed_amount=maker.executed_amount,
+                received_executed_amount=order.executed_amount,
+                order_status=order.status,
+            )
+            return
         maker.executed_amount = order.executed_amount
         if delta > 0:
             bitbank_fill_notice_time = datetime.now(JST)
+            bitbank_execution_time = _millisecond_timestamp(order.executed_at)
             fill_price = order.average_price or maker.price
             fill_event = {
                 "maker": asdict(maker),
                 "bitbank_order_id": maker.order_id,
+                "bitbank_fill_detection_source": detection_source,
+                "bitbank_execution_timestamp": _iso_or_none(bitbank_execution_time),
                 "bitbank_fill_notice_timestamp": bitbank_fill_notice_time.isoformat(),
+                "bitbank_execution_to_notice_ms": _elapsed_ms(
+                    bitbank_execution_time, bitbank_fill_notice_time
+                ),
                 "fill_amount": delta,
                 "cumulative_executed_amount": maker.executed_amount,
                 "fill_price": fill_price,
@@ -659,7 +786,14 @@ class ArbitrageTrader:
                 "maker_filled",
                 **fill_event,
             )
-            await self._hedge_fill(maker, delta, fill_price, bitbank_fill_notice_time)
+            await self._hedge_fill(
+                maker,
+                delta,
+                fill_price,
+                bitbank_fill_notice_time,
+                bitbank_fill_detection_source=detection_source,
+                bitbank_execution_time=bitbank_execution_time,
+            )
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):
             if self.state.active_maker is maker:
                 self.state.active_maker = None
@@ -808,6 +942,9 @@ class ArbitrageTrader:
         amount: Decimal,
         bitbank_fill_price: Decimal,
         bitbank_fill_notice_time: datetime,
+        *,
+        bitbank_fill_detection_source: str,
+        bitbank_execution_time: datetime | None,
     ) -> None:
         bitbank_fill_pnl = self._apply_bitbank_pnl(maker, amount, bitbank_fill_price)
         if maker.action == "BUY":
@@ -857,7 +994,12 @@ class ArbitrageTrader:
                 "bitflyer_hedge_attempt",
                 side=bitflyer_side,
                 amount=hedge_amount,
+                bitbank_fill_detection_source=bitbank_fill_detection_source,
+                bitbank_execution_timestamp=_iso_or_none(bitbank_execution_time),
                 bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+                bitbank_execution_to_notice_ms=_elapsed_ms(
+                    bitbank_execution_time, bitbank_fill_notice_time
+                ),
                 bitflyer_hedge_request_timestamp=bitflyer_hedge_request_time.isoformat(),
                 notice_to_hedge_request_ms=_elapsed_ms(
                     bitbank_fill_notice_time, bitflyer_hedge_request_time
@@ -907,7 +1049,12 @@ class ArbitrageTrader:
                     executed_amount=hedge_executed_amount,
                     average_price=actual_hedge_price,
                     child_order_acceptance_id=ack.child_order_acceptance_id,
+                    bitbank_fill_detection_source=bitbank_fill_detection_source,
+                    bitbank_execution_timestamp=_iso_or_none(bitbank_execution_time),
                     bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+                    bitbank_execution_to_notice_ms=_elapsed_ms(
+                        bitbank_execution_time, bitbank_fill_notice_time
+                    ),
                     bitflyer_hedge_request_timestamp=bitflyer_hedge_request_time.isoformat(),
                     bitflyer_hedge_acceptance_timestamp=bitflyer_hedge_acceptance_time.isoformat(),
                     bitflyer_execution_timestamp=_iso_or_none(bitflyer_execution_time),
@@ -1005,7 +1152,12 @@ class ArbitrageTrader:
             bitflyer_expected_price=expected_hedge_price,
             bitflyer_average_price=actual_hedge_price,
             bitflyer_child_order_acceptance_id=bitflyer_child_order_acceptance_id,
+            bitbank_fill_detection_source=bitbank_fill_detection_source,
+            bitbank_execution_timestamp=_iso_or_none(bitbank_execution_time),
             bitbank_fill_notice_timestamp=bitbank_fill_notice_time.isoformat(),
+            bitbank_execution_to_notice_ms=_elapsed_ms(
+                bitbank_execution_time, bitbank_fill_notice_time
+            ),
             bitflyer_hedge_request_timestamp=_iso_or_none(bitflyer_hedge_request_time),
             bitflyer_hedge_acceptance_timestamp=_iso_or_none(bitflyer_hedge_acceptance_time),
             bitflyer_execution_timestamp=_iso_or_none(bitflyer_execution_time),
