@@ -7,6 +7,7 @@
     "bitbank",
     "bitflyer",
     "coincheck",
+    "deque",
     "dotenv",
     "flyer",
     "gcloud",
