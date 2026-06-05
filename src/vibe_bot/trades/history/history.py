@@ -12,9 +12,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from vibe_bot.bitbank import PublicClient as BitbankPublicClient
+from vibe_bot.bitbank.errors import ApiError as BitbankApiError
 from vibe_bot.bitflyer import PublicClient as BitflyerPublicClient
 from vibe_bot.coincheck import PublicClient as CoincheckPublicClient
 from vibe_bot.gmo import PublicClient as GmoPublicClient
+from vibe_bot.gmo.errors import ApiError as GmoApiError
 
 JST = ZoneInfo("Asia/Tokyo")
 PairName = str
@@ -478,7 +480,13 @@ async def fetch_bitbank_closes(
     closes: dict[int, Decimal] = {}
     current = start.date()
     while current <= end.date():
-        candle = await client.candlestick(pair, candle_type, current.strftime("%Y%m%d"))
+        try:
+            candle = await client.candlestick(pair, candle_type, current.strftime("%Y%m%d"))
+        except BitbankApiError as exc:
+            if exc.code == 10000:
+                current += timedelta(days=1)
+                continue
+            raise
         for row in candle.ohlcv:
             if len(row) < 6:
                 continue
@@ -499,7 +507,16 @@ async def fetch_gmo_closes(
     closes: dict[int, Decimal] = {}
     current = start.date()
     while current <= end.date():
-        rows = await client.klines(symbol, interval, current.strftime("%Y%m%d"))
+        try:
+            rows = await client.klines(symbol, interval, current.strftime("%Y%m%d"))
+        except GmoApiError as exc:
+            if any(
+                message.get("message_code") == "ERR-5207"
+                for message in exc.messages
+            ):
+                current += timedelta(days=1)
+                continue
+            raise
         for row in rows:
             closes[_parse_gmo_open_time_ms(row.open_time)] = row.close
         current += timedelta(days=1)

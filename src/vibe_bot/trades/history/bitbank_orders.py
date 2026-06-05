@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from plotly.subplots import make_subplots
 
 from vibe_bot.bitbank import PrivateClient as BitbankPrivateClient
+from vibe_bot.bitbank.models import MarginPosition
 from vibe_bot.bitbank.models import Trade
 from vibe_bot.trades.history.coincheck_orders import PricePoint
 from vibe_bot.trades.history.coincheck_orders import PriceSource
@@ -41,6 +42,8 @@ class BitbankOrdersChartData:
 class BitbankSpotData:
     spot_amounts: list[SpotAmountPoint]
     trades: list[Trade]
+    spot_amount: Decimal
+    margin_position_amount: Decimal
 
 
 @dataclass
@@ -68,7 +71,7 @@ async def fetch_chart_data(
     max_trade_pages: int | None = None,
     neutral_amount: Decimal | str | None = None,
 ) -> BitbankOrdersChartData:
-    """Fetch recent bitbank spot BTC balance changes and BTC price candles."""
+    """Fetch recent bitbank net BTC exposure changes and BTC price candles."""
     validate_config(days, candle_minutes)
     if trade_limit <= 0:
         raise ValueError("trade_limit must be positive")
@@ -102,7 +105,7 @@ async def fetch_chart_data(
     )
     spot_data, prices = await asyncio.gather(spot_task, price_task)
     if not spot_data.spot_amounts:
-        raise RuntimeError("no bitbank spot amount points were returned")
+        raise RuntimeError("no bitbank net amount points were returned")
     if not prices:
         raise RuntimeError("no BTC price candles were returned")
 
@@ -165,6 +168,7 @@ async def fetch_bitbank_spot_data(
 ) -> BitbankSpotData:
     async with BitbankPrivateClient() as client:
         assets = await client.assets()
+        positions = await client.margin_positions()
         trades = await _fetch_recent_trades(
             client,
             pair=pair,
@@ -174,22 +178,25 @@ async def fetch_bitbank_spot_data(
             max_pages=max_trade_pages,
         )
 
-    current_amount = _asset_amount(assets.assets, base_asset)
-    spot_trades = [
+    spot_amount = _asset_amount(assets.assets, base_asset)
+    margin_position_amount = _margin_position_amount(positions.positions, pair)
+    current_amount = spot_amount + margin_position_amount
+    relevant_trades = [
         trade
         for trade in trades
         if trade.pair == pair
-        and trade.position_side is None
         and _trade_time(trade) <= end
     ]
     return BitbankSpotData(
         spot_amounts=build_spot_amount_points(
             current_amount=current_amount,
-            trades=spot_trades,
+            trades=relevant_trades,
             start=start,
             end=end,
         ),
-        trades=spot_trades,
+        trades=relevant_trades,
+        spot_amount=spot_amount,
+        margin_position_amount=margin_position_amount,
     )
 
 
@@ -301,9 +308,9 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
         vertical_spacing=0.08,
         row_heights=[0.46, 0.27, 0.27] if has_profit else [0.58, 0.42],
         subplot_titles=(
-            ("BTC Price", "bitbank Spot BTC Amount", "Realized Profit")
+            ("BTC Price", "bitbank Net BTC Amount", "Realized Profit")
             if has_profit
-            else ("BTC Price", "bitbank Spot BTC Amount")
+            else ("BTC Price", "bitbank Net BTC Amount")
         ),
     )
     fig.add_trace(
@@ -324,7 +331,7 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
             y=[float(point.amount) for point in data.spot_amounts],
             mode="lines",
             line_shape="hv",
-            name="bitbank spot BTC",
+            name="bitbank net BTC",
             line={"color": "#0f9f6e", "width": 1.8},
             hovertemplate="%{y:.8f} BTC<extra></extra>",
         ),
@@ -357,7 +364,7 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
 
     fig.update_layout(
         title=(
-            f"bitbank Spot BTC Amount and BTC Price "
+            f"bitbank Net BTC Amount and BTC Price "
             f"({data.candle_minutes}min candles, {data.start:%Y-%m-%d} - {data.end:%Y-%m-%d} JST)"
         ),
         hovermode="x unified",
@@ -372,8 +379,10 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
         fig.update_yaxes(title_text="JPY", tickformat=",", row=3, col=1)
     fig.update_xaxes(title_text="Time (JST)", row=rows, col=1)
     annotation_text = (
-        "Spot amount is reconstructed from current bitbank on-hand balance and "
-        "recent bitbank spot executions, including base-asset trading fees."
+        "Net amount is reconstructed from current bitbank spot on-hand balance "
+        "plus open margin position, and recent bitbank spot/margin executions. "
+        "Spot executions include base-asset trading fees; margin executions use "
+        "trade amount as position delta."
     )
     if data.neutral_amount is not None:
         annotation_text += (
@@ -435,7 +444,7 @@ def main(
     output_html: Path | str | None = None,
     show: bool = True,
 ) -> go.Figure:
-    """Build the bitbank spot BTC amount chart with direct function arguments."""
+    """Build the bitbank net BTC amount chart with direct function arguments."""
     load_dotenv()
     return asyncio.run(
         run(
@@ -497,7 +506,21 @@ def _asset_amount(assets: list[object], base_asset: str) -> Decimal:
     return Decimal("0")
 
 
+def _margin_position_amount(positions: list[MarginPosition], pair: str) -> Decimal:
+    total = Decimal("0")
+    for position in positions:
+        if position.pair != pair or position.open_amount is None:
+            continue
+        if position.position_side == "long":
+            total += position.open_amount
+        elif position.position_side == "short":
+            total -= position.open_amount
+    return total
+
+
 def _base_asset_delta(trade: Trade) -> Decimal:
+    if trade.position_side is not None:
+        return trade.amount if trade.side == "buy" else -trade.amount
     amount = trade.amount if trade.side == "buy" else -trade.amount
     return amount - trade.fee_amount_base
 
