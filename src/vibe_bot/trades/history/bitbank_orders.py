@@ -69,7 +69,7 @@ async def fetch_chart_data(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     trade_limit: int = 1000,
     max_trade_pages: int | None = None,
-    neutral_amount: Decimal | str | None = None,
+    neutral_amount: Decimal | str | None = Decimal("0"),
 ) -> BitbankOrdersChartData:
     """Fetch recent bitbank net BTC exposure changes and BTC price candles."""
     validate_config(days, candle_minutes)
@@ -308,7 +308,7 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
         vertical_spacing=0.08,
         row_heights=[0.46, 0.27, 0.27] if has_profit else [0.58, 0.42],
         subplot_titles=(
-            ("BTC Price", "bitbank Net BTC Amount", "Realized Profit")
+            ("BTC Price", "bitbank Net BTC Amount", "Realized PnL")
             if has_profit
             else ("BTC Price", "bitbank Net BTC Amount")
         ),
@@ -348,7 +348,7 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
                 y=[float(point.profit) for point in data.profit_points],
                 mode="lines",
                 line_shape="hv",
-                name="Realized profit",
+                name="Realized PnL",
                 line={"color": "#c2410c", "width": 1.8},
                 hovertemplate="%{y:,.0f} JPY<extra></extra>",
             ),
@@ -386,7 +386,7 @@ def build_figure(data: BitbankOrdersChartData) -> go.Figure:
     )
     if data.neutral_amount is not None:
         annotation_text += (
-            f" Profit treats {data.neutral_amount} BTC as neutral and uses "
+            f" Realized PnL treats {data.neutral_amount} BTC as neutral and uses "
             "observed executions as entries/exits; pre-window entry prices are unknown."
         )
     fig.add_annotation(
@@ -409,7 +409,7 @@ async def run(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     trade_limit: int = 1000,
     max_trade_pages: int | None = None,
-    neutral_amount: Decimal | str | None = None,
+    neutral_amount: Decimal | str | None = Decimal("0"),
     output_html: Path | str | None = None,
     show: bool = True,
 ) -> go.Figure:
@@ -440,7 +440,7 @@ def main(
     price_sources: tuple[PriceSource, ...] = DEFAULT_PRICE_SOURCES,
     trade_limit: int = 1000,
     max_trade_pages: int | None = None,
-    neutral_amount: Decimal | str | None = None,
+    neutral_amount: Decimal | str | None = Decimal("0"),
     output_html: Path | str | None = None,
     show: bool = True,
 ) -> go.Figure:
