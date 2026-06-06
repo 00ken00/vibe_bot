@@ -600,15 +600,45 @@ class ArbitrageTrader:
         )
         long_amount = Decimal("0")
         short_amount = Decimal("0")
+        commission = Decimal("0")
+        swap_point_accumulate = Decimal("0")
+        sfd = Decimal("0")
+        funding_fees = Decimal("0")
+        unrealized_pnl = Decimal("0")
+        position_details: list[dict[str, object]] = []
         for position in positions:
             if position.side == "BUY":
                 long_amount += position.size
             elif position.side == "SELL":
                 short_amount += position.size
+            commission += position.commission
+            swap_point_accumulate += position.swap_point_accumulate
+            sfd += position.sfd or Decimal("0")
+            funding_fees += position.funding_fees or Decimal("0")
+            unrealized_pnl += position.pnl or Decimal("0")
+            position_details.append(
+                {
+                    "side": position.side,
+                    "price": position.price,
+                    "size": position.size,
+                    "commission": position.commission,
+                    "swap_point_accumulate": position.swap_point_accumulate,
+                    "sfd": position.sfd,
+                    "funding_fees": position.funding_fees,
+                    "pnl": position.pnl,
+                    "open_date": position.open_date,
+                }
+            )
         return short_amount - long_amount, {
             "product_code": self.config.bitflyer_product_code,
             "long_open_amount": long_amount,
             "short_open_amount": short_amount,
+            "commission": commission,
+            "swap_point_accumulate": swap_point_accumulate,
+            "sfd": sfd,
+            "funding_fees": funding_fees,
+            "unrealized_pnl": unrealized_pnl,
+            "positions": position_details,
         }
 
     async def _execute_target(self, target: TradeTarget) -> None:

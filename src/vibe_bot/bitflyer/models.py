@@ -245,6 +245,7 @@ class Position(_Base):
     leverage: Decimal | None = None
     pnl: Decimal | None = None
     sfd: Decimal | None = None
+    funding_fees: Decimal | None = None
 
 
 class ParentOrderParameter(_Base):
