@@ -36,6 +36,11 @@ class BitflyerFxOrdersChartData:
     candle_minutes: int
     profit_points: list[ProfitPoint] | None = None
     neutral_position: Decimal | None = None
+    current_position_funding_fees: Decimal = Decimal("0")
+    current_position_swap_points: Decimal = Decimal("0")
+    current_position_sfd: Decimal = Decimal("0")
+    current_position_commission: Decimal = Decimal("0")
+    open_position_details: list[dict[str, object]] | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,11 @@ class BitflyerFxData:
     positions: list[SpotAmountPoint]
     executions: list[PrivateExecution]
     current_position: Decimal
+    current_position_funding_fees: Decimal
+    current_position_swap_points: Decimal
+    current_position_sfd: Decimal
+    current_position_commission: Decimal
+    open_position_details: list[dict[str, object]]
 
 
 @dataclass
@@ -131,6 +141,11 @@ async def fetch_chart_data(
         ),
         candle_minutes=candle_minutes,
         neutral_position=parsed_neutral_position,
+        current_position_funding_fees=fx_data.current_position_funding_fees,
+        current_position_swap_points=fx_data.current_position_swap_points,
+        current_position_sfd=fx_data.current_position_sfd,
+        current_position_commission=fx_data.current_position_commission,
+        open_position_details=fx_data.open_position_details,
     )
 
 
@@ -153,6 +168,7 @@ async def fetch_bitflyer_fx_data(
         )
 
     current_position = _current_position(positions)
+    fee_summary = _position_fee_summary(positions)
     relevant = [
         execution
         for execution in executions
@@ -167,6 +183,11 @@ async def fetch_bitflyer_fx_data(
         ),
         executions=relevant,
         current_position=current_position,
+        current_position_funding_fees=fee_summary["funding_fees"],
+        current_position_swap_points=fee_summary["swap_point_accumulate"],
+        current_position_sfd=fee_summary["sfd"],
+        current_position_commission=fee_summary["commission"],
+        open_position_details=fee_summary["positions"],
     )
 
 
@@ -370,6 +391,12 @@ def build_figure(data: BitflyerFxOrdersChartData) -> go.Figure:
             "observed executions as entries/exits; pre-window entry prices are unknown. "
             "Execution commission is not subtracted."
         )
+    annotation_text += (
+        f" Current open-position funding_fees={data.current_position_funding_fees} JPY, "
+        f"swap_point_accumulate={data.current_position_swap_points} JPY, "
+        f"sfd={data.current_position_sfd} JPY, "
+        f"commission={data.current_position_commission} JPY."
+    )
     fig.add_annotation(
         text=annotation_text,
         xref="paper",
@@ -482,6 +509,39 @@ def _current_position(positions: list[Position]) -> Decimal:
         (_signed_size(position.side, position.size) for position in positions),
         Decimal("0"),
     )
+
+
+def _position_fee_summary(positions: list[Position]) -> dict[str, object]:
+    details: list[dict[str, object]] = []
+    commission = Decimal("0")
+    swap_point_accumulate = Decimal("0")
+    sfd = Decimal("0")
+    funding_fees = Decimal("0")
+    for position in positions:
+        commission += position.commission
+        swap_point_accumulate += position.swap_point_accumulate
+        sfd += position.sfd or Decimal("0")
+        funding_fees += position.funding_fees or Decimal("0")
+        details.append(
+            {
+                "side": position.side,
+                "price": position.price,
+                "size": position.size,
+                "commission": position.commission,
+                "swap_point_accumulate": position.swap_point_accumulate,
+                "sfd": position.sfd,
+                "funding_fees": position.funding_fees,
+                "pnl": position.pnl,
+                "open_date": position.open_date,
+            }
+        )
+    return {
+        "commission": commission,
+        "swap_point_accumulate": swap_point_accumulate,
+        "sfd": sfd,
+        "funding_fees": funding_fees,
+        "positions": details,
+    }
 
 
 def _position_delta(execution: PrivateExecution) -> Decimal:
