@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
     from vibe_bot.trades.bitbank_bitflyer.logging import Broadcaster
     from vibe_bot.trades.bitbank_bitflyer.models import BotState
+    from vibe_bot.trades.bitbank_bitflyer.momentum import MomentumGuard
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.web")
 
@@ -26,11 +27,13 @@ class WebApp:
         config: BotConfig,
         state: BotState,
         broadcaster: Broadcaster,
+        momentum_guard: MomentumGuard | None = None,
     ) -> None:
         self.config = config
         self.state = state
         self.broadcaster = broadcaster
         self._httpd: ThreadingHTTPServer | None = None
+        self._momentum_guard = momentum_guard
 
     def start_http(self) -> None:
         html = self._html().encode()
@@ -84,6 +87,18 @@ class WebApp:
         active = self.state.active_maker
         latest_bitbank_transaction = self.state.latest_bitbank_transaction
         uptime = time.time() - self.state.started_at
+        momentum: dict[str, object] | None = None
+        if self._momentum_guard is not None:
+            buy_move, buy_reason = self._momentum_guard.peek("BUY")
+            sell_move, sell_reason = self._momentum_guard.peek("SELL")
+            momentum = {
+                "enabled": self._momentum_guard.enabled,
+                "threshold_jpy": self._momentum_guard.threshold_jpy,
+                "buy_adverse_move_jpy": buy_move,
+                "buy_blocked_reason": buy_reason,
+                "sell_adverse_move_jpy": sell_move,
+                "sell_blocked_reason": sell_reason,
+            }
         return {
             "type": "snapshot",
             "timestamp": time.time(),
@@ -127,12 +142,15 @@ class WebApp:
                 "bitflyer_ask": quote.bitflyer_ask,
                 "bitflyer_bid_vwap": quote.bitflyer_bid_vwap,
                 "bitflyer_ask_vwap": quote.bitflyer_ask_vwap,
+                "bitflyer_bid_vwap_base": quote.bitflyer_bid_vwap_base,
+                "bitflyer_ask_vwap_base": quote.bitflyer_ask_vwap_base,
                 "buy_price": quote.buy_price,
                 "sell_price": quote.sell_price,
                 "timestamp": quote.timestamp,
             },
             "latest_bitbank_transaction": latest_bitbank_transaction,
             "active_maker": active,
+            "momentum_guard": momentum,
         }
 
     def _parameters_html(self) -> str:
@@ -209,6 +227,7 @@ main {{ padding: 16px; display: grid; gap: 14px; }}
 }}
 .label {{ color: var(--muted); font-size: 12px; }}
 .value {{ margin-top: 5px; font-size: 20px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+.value.guard-blocked {{ color: var(--warn); font-weight: 700; }}
 .chart-wrap {{
   background: var(--panel);
   border: 1px solid var(--line);
@@ -350,6 +369,8 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">Unhedged BTC</div><div id="unhedgedPosition" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
+    <div class="metric"><div class="label">bitFlyer Est 1x Sell / Buy</div><div id="bfDepthBase" class="value">--</div></div>
+    <div class="metric"><div class="label">Momentum Guard</div><div id="momentumGuard" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
     <div class="metric"><div class="label">Uptime</div><div id="uptime" class="value">--</div></div>
   </section>
@@ -468,6 +489,25 @@ function renderMetrics() {{
   setText("unhedgedPosition", btcFmt.format(num(latest.unhedged_position || 0)));
   setText("bf", `${{fmt.format(num(q.bitflyer_bid || 0))}} / ${{fmt.format(num(q.bitflyer_ask || 0))}}`);
   setText("bfDepth", `${{fmt.format(num(q.bitflyer_bid_vwap || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap || 0))}}`);
+  setText("bfDepthBase", `${{fmt.format(num(q.bitflyer_bid_vwap_base || 0))}} / ${{fmt.format(num(q.bitflyer_ask_vwap_base || 0))}}`);
+  const guard = latest.momentum_guard;
+  const guardEl = el("momentumGuard");
+  if (!guard || !guard.enabled) {{
+    guardEl.textContent = guard ? "disabled" : "--";
+    guardEl.classList.remove("guard-blocked");
+  }} else {{
+    const buyBlocked = guard.buy_blocked_reason;
+    const sellBlocked = guard.sell_blocked_reason;
+    const moveText = `B ${{fmt.format(num(guard.buy_adverse_move_jpy || 0))}} / S ${{fmt.format(num(guard.sell_adverse_move_jpy || 0))}}`;
+    if (buyBlocked || sellBlocked) {{
+      const sides = [buyBlocked ? `BUY ${{buyBlocked}}` : null, sellBlocked ? `SELL ${{sellBlocked}}` : null].filter(Boolean).join(", ");
+      guardEl.textContent = `${{sides}} | ${{moveText}}`;
+      guardEl.classList.add("guard-blocked");
+    }} else {{
+      guardEl.textContent = `ok | ${{moveText}}`;
+      guardEl.classList.remove("guard-blocked");
+    }}
+  }}
   const s = latest.stage_status || {{}};
   const longOpen = s.long_open_trigger == null ? "--" : fmt.format(num(s.long_open_trigger));
   const longClose = s.long_close_trigger == null ? "--" : fmt.format(num(s.long_close_trigger));

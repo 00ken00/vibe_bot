@@ -74,6 +74,23 @@ class MomentumGuard:
             return MomentumBlock(adverse_move_jpy=move, reason="cooldown")
         return None
 
+    def peek(self, action: str, now: float | None = None) -> tuple[Decimal, str | None]:
+        """Adverse move and block reason without refreshing the cooldown.
+
+        For monitoring only: unlike ``blocked`` it never extends the cooldown,
+        so the web UI can poll it without affecting strategy behaviour.
+        """
+        if not self.enabled:
+            return Decimal("0"), None
+        now = time.time() if now is None else now
+        self._prune(now)
+        move = self._adverse_move(action)
+        if move >= self.threshold_jpy:
+            return move, "momentum"
+        if now < self._cooldown_until[action]:
+            return move, "cooldown"
+        return move, None
+
     def _adverse_move(self, action: str) -> Decimal:
         if len(self._samples) < 2:
             return Decimal("0")

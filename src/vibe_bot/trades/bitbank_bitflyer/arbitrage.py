@@ -1413,8 +1413,8 @@ async def run_bot(config: BotConfig) -> None:
     logger = TradeLogger(config.log_dir)
     broadcaster = Broadcaster()
     stop = asyncio.Event()
-    web = WebApp(config, state, broadcaster)
     momentum_guard = MomentumGuard.from_config(config)
+    web = WebApp(config, state, broadcaster, momentum_guard=momentum_guard)
     quote_feed = WebSocketQuoteFeed(config, state, logger, momentum_guard=momentum_guard)
     trader = ArbitrageTrader(config, state, logger, momentum_guard=momentum_guard)
 
