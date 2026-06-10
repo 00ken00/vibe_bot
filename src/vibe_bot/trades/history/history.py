@@ -660,6 +660,7 @@ def __main__():
         right_exchange=right_exchange,
         right_symbol=right_symbol,
         days=3,
-        candle_minutes=15,
+        candle_minutes=60,
+        # candle_minutes=15,
         # candle_minutes=5,
     )
