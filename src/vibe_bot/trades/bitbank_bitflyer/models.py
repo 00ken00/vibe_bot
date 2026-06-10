@@ -78,6 +78,12 @@ class Quote:
         )
 
     @property
+    def bitflyer_mid(self) -> Decimal | None:
+        if self.bitflyer_bid is None or self.bitflyer_ask is None:
+            return None
+        return (self.bitflyer_bid + self.bitflyer_ask) / 2
+
+    @property
     def buy_price(self) -> Decimal | None:
         if self.bitbank_buy_maker is None or self.bitflyer_bid_vwap is None:
             return None

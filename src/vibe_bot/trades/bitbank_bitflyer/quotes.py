@@ -12,6 +12,7 @@ from vibe_bot.trades.bitbank_bitflyer.config import BotConfig
 from vibe_bot.trades.bitbank_bitflyer.logging import TradeLogger
 from vibe_bot.trades.bitbank_bitflyer.models import BotState
 from vibe_bot.trades.bitbank_bitflyer.models import Quote
+from vibe_bot.trades.bitbank_bitflyer.momentum import MomentumGuard
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.quotes")
 
@@ -102,13 +103,20 @@ class WebSocketQuoteFeed:
     prices are based on the configured order size instead of the best level.
     """
 
-    def __init__(self, config: BotConfig, state: BotState, logger: TradeLogger) -> None:
+    def __init__(
+        self,
+        config: BotConfig,
+        state: BotState,
+        logger: TradeLogger,
+        momentum_guard: MomentumGuard | None = None,
+    ) -> None:
         self.config = config
         self.state = state
         self.logger = logger
         self._bitbank = OrderBook()
         self._bitflyer = OrderBook()
         self._lock = asyncio.Lock()
+        self._momentum_guard = momentum_guard
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -213,5 +221,9 @@ class WebSocketQuoteFeed:
             timestamp=time.time(),
         )
         self.state.quote = quote
+        if self._momentum_guard is not None:
+            mid = quote.bitflyer_mid
+            if mid is not None:
+                self._momentum_guard.record(mid, quote.timestamp)
         if quote.ready:
             self.state.last_error = ""

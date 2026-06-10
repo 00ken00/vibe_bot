@@ -24,6 +24,10 @@ class BotConfig:
     threshold_offset_jpy: Decimal = Decimal("0")
     hedge_vwap_multiplier: Decimal = Decimal("3")
     hedge_slippage_buffer_jpy: Decimal = Decimal("500")
+    momentum_guard_enabled: bool = True
+    momentum_guard_window_seconds: float = 2.0
+    momentum_guard_threshold_jpy: Decimal = Decimal("3000")
+    momentum_guard_cooldown_seconds: float = 2.0
     order_size: Decimal = Decimal("0.001")
     stage_size: Decimal = Decimal("0.001")
     max_stages: int = 3
@@ -87,6 +91,32 @@ def build_parser() -> argparse.ArgumentParser:
             "extra JPY/BTC edge required on top of the expected hedge VWAP to cover "
             "book movement between bitbank fill and bitFlyer hedge execution"
         ),
+    )
+    parser.add_argument(
+        "--disable-momentum-guard",
+        action="store_true",
+        help="do not pull makers while the bitFlyer mid bursts toward them",
+    )
+    parser.add_argument(
+        "--momentum-guard-window-seconds",
+        type=float,
+        default=2.0,
+        help="lookback window for measuring bitFlyer mid movement",
+    )
+    parser.add_argument(
+        "--momentum-guard-threshold-jpy",
+        type=decimal_arg,
+        default=Decimal("3000"),
+        help=(
+            "adverse bitFlyer mid move over the window that pulls the maker; "
+            "falling mid blocks BUY makers, rising mid blocks SELL makers"
+        ),
+    )
+    parser.add_argument(
+        "--momentum-guard-cooldown-seconds",
+        type=float,
+        default=2.0,
+        help="keep the side's maker pulled this long after the last adverse move",
     )
     parser.add_argument("--order-size", type=decimal_arg, default=Decimal("0.001"))
     parser.add_argument(
@@ -178,6 +208,12 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--hedge-vwap-multiplier must be at least 1")
     if args.hedge_slippage_buffer_jpy < 0:
         raise SystemExit("--hedge-slippage-buffer-jpy must be non-negative")
+    if args.momentum_guard_window_seconds <= 0:
+        raise SystemExit("--momentum-guard-window-seconds must be positive")
+    if args.momentum_guard_threshold_jpy <= 0:
+        raise SystemExit("--momentum-guard-threshold-jpy must be positive")
+    if args.momentum_guard_cooldown_seconds < 0:
+        raise SystemExit("--momentum-guard-cooldown-seconds must be non-negative")
     if args.stage_size <= 0:
         raise SystemExit("--stage-size must be positive")
     if args.max_stages <= 0:
@@ -208,6 +244,10 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         threshold_offset_jpy=args.threshold_offset_jpy,
         hedge_vwap_multiplier=args.hedge_vwap_multiplier,
         hedge_slippage_buffer_jpy=args.hedge_slippage_buffer_jpy,
+        momentum_guard_enabled=not args.disable_momentum_guard,
+        momentum_guard_window_seconds=args.momentum_guard_window_seconds,
+        momentum_guard_threshold_jpy=args.momentum_guard_threshold_jpy,
+        momentum_guard_cooldown_seconds=args.momentum_guard_cooldown_seconds,
         order_size=args.order_size,
         stage_size=args.stage_size,
         max_stages=args.max_stages,

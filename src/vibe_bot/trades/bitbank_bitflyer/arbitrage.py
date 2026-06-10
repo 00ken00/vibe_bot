@@ -26,6 +26,7 @@ from vibe_bot.trades.bitbank_bitflyer.logging import event_summary
 from vibe_bot.trades.bitbank_bitflyer.models import BotAction
 from vibe_bot.trades.bitbank_bitflyer.models import BotState
 from vibe_bot.trades.bitbank_bitflyer.models import MakerOrder
+from vibe_bot.trades.bitbank_bitflyer.momentum import MomentumGuard
 from vibe_bot.trades.bitbank_bitflyer.models import StageStatus
 from vibe_bot.trades.bitbank_bitflyer.quotes import WebSocketQuoteFeed
 from vibe_bot.trades.bitbank_bitflyer.utils import JST
@@ -72,7 +73,13 @@ class ArbitrageTrader:
     quote selection and logs what would be maintained.
     """
 
-    def __init__(self, config: BotConfig, state: BotState, logger: TradeLogger) -> None:
+    def __init__(
+        self,
+        config: BotConfig,
+        state: BotState,
+        logger: TradeLogger,
+        momentum_guard: MomentumGuard | None = None,
+    ) -> None:
         self.config = config
         self.state = state
         self.logger = logger
@@ -81,6 +88,8 @@ class ArbitrageTrader:
         self._bb_private_stream_task: asyncio.Task[None] | None = None
         self._maker_reconcile_lock = asyncio.Lock()
         self._shutdown_started = False
+        self._momentum_guard = momentum_guard or MomentumGuard.from_config(config)
+        self._momentum_blocked_action: str | None = None
 
     async def run(self, stop: asyncio.Event) -> None:
         if not self.config.dry_run:
@@ -209,6 +218,9 @@ class ArbitrageTrader:
         if not quote.ready:
             self.state.set_action(BotAction.WAITING_FOR_QUOTES, "quote.ready=false")
             return
+        mid = quote.bitflyer_mid
+        if mid is not None:
+            self._momentum_guard.record(mid)
         self.state.stage_status = self._stage_status()
         await self._refresh_active_maker()
         if self._in_bitflyer_maintenance_guard():
@@ -243,6 +255,34 @@ class ArbitrageTrader:
             self.state.set_action(BotAction.IDLE, "target=None")
             await self._cancel_active_maker("no_target")
             return
+        block = self._momentum_guard.blocked(target.action)
+        if block is not None:
+            if self._momentum_blocked_action != target.action:
+                self._momentum_blocked_action = target.action
+                self.logger.event(
+                    "momentum_guard_triggered",
+                    action=target.action,
+                    adverse_move_jpy=block.adverse_move_jpy,
+                    reason=block.reason,
+                    threshold_jpy=self.config.momentum_guard_threshold_jpy,
+                    window_seconds=self.config.momentum_guard_window_seconds,
+                )
+            self.state.set_action(
+                BotAction.IDLE,
+                event_summary(
+                    "momentum_guard",
+                    action=target.action,
+                    adverse_move_jpy=block.adverse_move_jpy,
+                    reason=block.reason,
+                ),
+            )
+            await self._cancel_active_maker("momentum_guard")
+            return
+        if self._momentum_blocked_action is not None:
+            self.logger.event(
+                "momentum_guard_cleared", action=self._momentum_blocked_action
+            )
+            self._momentum_blocked_action = None
         if self._same_maker(self.state.active_maker, target):
             self.state.set_action(
                 BotAction.maintain(target.action),
@@ -1374,8 +1414,9 @@ async def run_bot(config: BotConfig) -> None:
     broadcaster = Broadcaster()
     stop = asyncio.Event()
     web = WebApp(config, state, broadcaster)
-    quote_feed = WebSocketQuoteFeed(config, state, logger)
-    trader = ArbitrageTrader(config, state, logger)
+    momentum_guard = MomentumGuard.from_config(config)
+    quote_feed = WebSocketQuoteFeed(config, state, logger, momentum_guard=momentum_guard)
+    trader = ArbitrageTrader(config, state, logger, momentum_guard=momentum_guard)
 
     def request_stop() -> None:
         stop.set()
