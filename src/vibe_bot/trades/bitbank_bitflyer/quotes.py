@@ -190,6 +190,7 @@ class WebSocketQuoteFeed:
 
     async def _publish_quote_locked(self) -> None:
         amount = self.config.order_size
+        vwap_amount = amount * self.config.hedge_vwap_multiplier
         quote = Quote(
             bitbank_bid=self._bitbank.best_bid,
             bitbank_ask=self._bitbank.best_ask,
@@ -205,8 +206,10 @@ class WebSocketQuoteFeed:
             ),
             bitflyer_bid=self._bitflyer.best_bid,
             bitflyer_ask=self._bitflyer.best_ask,
-            bitflyer_bid_vwap=self._bitflyer.vwap("sell", amount),
-            bitflyer_ask_vwap=self._bitflyer.vwap("buy", amount),
+            bitflyer_bid_vwap=self._bitflyer.vwap("sell", vwap_amount),
+            bitflyer_ask_vwap=self._bitflyer.vwap("buy", vwap_amount),
+            bitflyer_bid_vwap_base=self._bitflyer.vwap("sell", amount),
+            bitflyer_ask_vwap_base=self._bitflyer.vwap("buy", amount),
             timestamp=time.time(),
         )
         self.state.quote = quote

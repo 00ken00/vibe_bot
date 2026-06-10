@@ -66,6 +66,7 @@ class TradeLogger:
             "bitbank_amount",
             "bitflyer_side",
             "bitflyer_expected_price",
+            "bitflyer_expected_price_base",
             "bitflyer_average_price",
             "bitflyer_child_order_acceptance_id",
             "bitbank_fill_detection_source",

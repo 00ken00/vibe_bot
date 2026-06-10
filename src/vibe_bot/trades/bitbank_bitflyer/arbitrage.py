@@ -408,19 +408,22 @@ class ArbitrageTrader:
         assert quote.bitflyer_bid_vwap is not None
         assert quote.bitflyer_ask_vwap is not None
         position_side: BitbankPositionSide | None = None
+        buffer = self.config.hedge_slippage_buffer_jpy
         if action == "BUY":
             passive = quote.bitbank_ask - self.config.tick_size
-            profitable = quote.bitflyer_bid_vwap + trigger
+            profitable = quote.bitflyer_bid_vwap + trigger - buffer
             price = quantize_down(min(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_bid_vwap
+            expected_hedge_base = quote.bitflyer_bid_vwap_base
             side = "buy"
             if self.state.position < 0:
                 position_side = "short"
         else:
             passive = quote.bitbank_bid + self.config.tick_size
-            profitable = quote.bitflyer_ask_vwap + trigger
+            profitable = quote.bitflyer_ask_vwap + trigger + buffer
             price = quantize_up(max(passive, profitable), self.config.tick_size)
             expected_hedge = quote.bitflyer_ask_vwap
+            expected_hedge_base = quote.bitflyer_ask_vwap_base
             side = "sell"
             if self.state.position <= 0:
                 position_side = "short"
@@ -439,6 +442,7 @@ class ArbitrageTrader:
             trigger_price=trigger,
             expected_hedge_price=expected_hedge,
             stage_index=stage_index,
+            expected_hedge_price_base=expected_hedge_base,
         )
 
     def _same_maker(self, current: MakerOrder | None, target: MakerOrder) -> bool:
@@ -1013,6 +1017,9 @@ class ArbitrageTrader:
         expected_hedge_price = (
             maker.expected_hedge_price if hedge_amount > 0 else Decimal("0")
         )
+        expected_hedge_price_base = (
+            maker.expected_hedge_price_base if hedge_amount > 0 else None
+        )
         actual_hedge_price: Decimal | None = None
         hedge_executed_amount = Decimal("0")
         hedge_executed = False
@@ -1191,6 +1198,7 @@ class ArbitrageTrader:
             bitbank_amount=amount,
             bitflyer_side=bitflyer_side,
             bitflyer_expected_price=expected_hedge_price,
+            bitflyer_expected_price_base=expected_hedge_price_base,
             bitflyer_average_price=actual_hedge_price,
             bitflyer_child_order_acceptance_id=bitflyer_child_order_acceptance_id,
             bitbank_fill_detection_source=bitbank_fill_detection_source,

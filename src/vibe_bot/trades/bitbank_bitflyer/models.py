@@ -43,7 +43,10 @@ class Quote:
     """Current order-book prices used to calculate arbitrage spreads.
 
     bitbank uses top-of-book aggressive maker prices. bitFlyer uses VWAP
-    estimates because the hedge leg is a taker order sized by ``order_size``.
+    estimates because the hedge leg is a taker order; the strategy VWAP is
+    computed over ``order_size * hedge_vwap_multiplier`` so the expected hedge
+    price stays conservative when the book thins out, while the ``_base``
+    fields keep the plain ``order_size`` VWAP for slippage diagnostics.
     """
 
     bitbank_bid: Decimal | None = None
@@ -54,6 +57,8 @@ class Quote:
     bitflyer_ask: Decimal | None = None
     bitflyer_bid_vwap: Decimal | None = None
     bitflyer_ask_vwap: Decimal | None = None
+    bitflyer_bid_vwap_base: Decimal | None = None
+    bitflyer_ask_vwap_base: Decimal | None = None
     timestamp: float = 0.0
 
     @property
@@ -114,6 +119,7 @@ class MakerOrder:
     order_id: str | None = None
     placed_at: float = field(default_factory=time.time)
     executed_amount: Decimal = Decimal("0")
+    expected_hedge_price_base: Decimal | None = None
 
 
 @dataclass

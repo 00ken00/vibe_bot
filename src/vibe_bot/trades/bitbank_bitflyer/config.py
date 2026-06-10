@@ -22,6 +22,8 @@ class BotConfig:
     bitflyer_neutral_position_amount: Decimal = Decimal("0")
     threshold_jpy: Decimal = Decimal("1000")
     threshold_offset_jpy: Decimal = Decimal("0")
+    hedge_vwap_multiplier: Decimal = Decimal("3")
+    hedge_slippage_buffer_jpy: Decimal = Decimal("500")
     order_size: Decimal = Decimal("0.001")
     stage_size: Decimal = Decimal("0.001")
     max_stages: int = 3
@@ -67,6 +69,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=decimal_arg,
         default=Decimal("0"),
         help="center spread offset for open/close thresholds",
+    )
+    parser.add_argument(
+        "--hedge-vwap-multiplier",
+        type=decimal_arg,
+        default=Decimal("3"),
+        help=(
+            "bitFlyer hedge VWAP depth as a multiple of --order-size; "
+            "deeper VWAP makes the expected hedge price conservative during thin books"
+        ),
+    )
+    parser.add_argument(
+        "--hedge-slippage-buffer-jpy",
+        type=decimal_arg,
+        default=Decimal("500"),
+        help=(
+            "extra JPY/BTC edge required on top of the expected hedge VWAP to cover "
+            "book movement between bitbank fill and bitFlyer hedge execution"
+        ),
     )
     parser.add_argument("--order-size", type=decimal_arg, default=Decimal("0.001"))
     parser.add_argument(
@@ -154,6 +174,10 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--bitbank-neutral-spot-amount must be non-negative")
     if args.order_size <= 0:
         raise SystemExit("--order-size must be positive")
+    if args.hedge_vwap_multiplier < 1:
+        raise SystemExit("--hedge-vwap-multiplier must be at least 1")
+    if args.hedge_slippage_buffer_jpy < 0:
+        raise SystemExit("--hedge-slippage-buffer-jpy must be non-negative")
     if args.stage_size <= 0:
         raise SystemExit("--stage-size must be positive")
     if args.max_stages <= 0:
@@ -182,6 +206,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         bitflyer_neutral_position_amount=args.bitflyer_neutral_position_amount,
         threshold_jpy=args.threshold_jpy,
         threshold_offset_jpy=args.threshold_offset_jpy,
+        hedge_vwap_multiplier=args.hedge_vwap_multiplier,
+        hedge_slippage_buffer_jpy=args.hedge_slippage_buffer_jpy,
         order_size=args.order_size,
         stage_size=args.stage_size,
         max_stages=args.max_stages,
