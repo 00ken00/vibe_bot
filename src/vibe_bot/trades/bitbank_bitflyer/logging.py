@@ -1,17 +1,31 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
+import logging
+import re
+import shutil
+import threading
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import IO
 
 from websockets.asyncio.server import ServerConnection
 
+from vibe_bot.trades.bitbank_bitflyer.utils import JST
 from vibe_bot.trades.bitbank_bitflyer.utils import decimal_to_json
 from vibe_bot.trades.bitbank_bitflyer.utils import decimal_to_json_dict
 from vibe_bot.trades.bitbank_bitflyer.utils import jst_iso
+from vibe_bot.trades.bitbank_bitflyer.utils import local_date_stamp
 from vibe_bot.trades.bitbank_bitflyer.utils import local_run_id
+
+LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.logging")
+
+QUOTES_RETENTION_DAYS = 7
+
+_QUOTES_DATE_RE = re.compile(r"-(\d{8})\.csv(?:\.gz)?$")
 
 
 def event_summary(event_type: str, **payload: object) -> str:
@@ -108,13 +122,21 @@ class TradeLogger:
         self._csv = csv.DictWriter(self._csv_file, fieldnames=fieldnames)
         self._csv.writeheader()
         self._csv_file.flush()
-        self.quotes_path = self.log_dir / f"quotes-{self.run_id}.csv"
+        self.quotes_path: Path | None = None
         self._quotes_file: IO[str] | None = None
+        self._quotes_day: str | None = None
+        self._archive_lock = threading.Lock()
+        # Compress quote logs left unfinished by previous runs and prune old ones.
+        self._archive_quotes_async()
 
     def close(self) -> None:
         self._csv_file.close()
         if self._quotes_file is not None:
             self._quotes_file.close()
+            self._quotes_file = None
+            self._quotes_day = None
+            self.quotes_path = None
+            self._archive_quotes()
 
     def event(self, event_type: str, **payload: object) -> None:
         row = {"run_id": self.run_id, "timestamp": jst_iso(), "event": event_type, **payload}
@@ -132,19 +154,61 @@ class TradeLogger:
         exchange: str,
         best_bid: Decimal | None,
         best_ask: Decimal | None,
+        vwap_size: Decimal | None,
         bid_vwap: Decimal | None,
         ask_vwap: Decimal | None,
+        base_size: Decimal,
+        bid_vwap_base: Decimal | None,
+        ask_vwap_base: Decimal | None,
     ) -> None:
-        if self._quotes_file is None:
+        day = local_date_stamp()
+        if self._quotes_file is None or day != self._quotes_day:
+            if self._quotes_file is not None:
+                self._quotes_file.close()
+            self._quotes_day = day
+            self.quotes_path = self.log_dir / f"quotes-{self.run_id}-{day}.csv"
             self._quotes_file = self.quotes_path.open("x", newline="")
             self._quotes_file.write(
-                "timestamp,exchange,best_bid,best_ask,bid_vwap,ask_vwap\n"
+                "timestamp,exchange,best_bid,best_ask,vwap_size,bid_vwap,ask_vwap,"
+                "base_size,bid_vwap_base,ask_vwap_base\n"
             )
+            self._archive_quotes_async()
         self._quotes_file.write(
             f"{timestamp:.3f},{exchange},{_quote_price(best_bid)},"
-            f"{_quote_price(best_ask)},{_quote_vwap(bid_vwap)},{_quote_vwap(ask_vwap)}\n"
+            f"{_quote_price(best_ask)},{_quote_price(vwap_size)},"
+            f"{_quote_vwap(bid_vwap)},{_quote_vwap(ask_vwap)},"
+            f"{_quote_price(base_size)},{_quote_vwap(bid_vwap_base)},"
+            f"{_quote_vwap(ask_vwap_base)}\n"
         )
         self._quotes_file.flush()
+
+    def _archive_quotes_async(self) -> None:
+        threading.Thread(target=self._archive_quotes, daemon=True).start()
+
+    def _archive_quotes(self) -> None:
+        """Gzip finished daily quote logs and drop those past retention."""
+        with self._archive_lock:
+            self._archive_quotes_locked()
+
+    def _archive_quotes_locked(self) -> None:
+        cutoff = (
+            datetime.now(JST) - timedelta(days=QUOTES_RETENTION_DAYS)
+        ).strftime("%Y%m%d")
+        current = self.quotes_path
+        for path in sorted(self.log_dir.glob("quotes-*.csv*")):
+            match = _QUOTES_DATE_RE.search(path.name)
+            if match is None or path == current:
+                continue
+            try:
+                if match.group(1) < cutoff:
+                    path.unlink(missing_ok=True)
+                elif path.suffix == ".csv":
+                    with path.open("rb") as src:
+                        with gzip.open(f"{path}.gz", "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                    path.unlink()
+            except Exception:
+                LOGGER.exception("failed to archive quote log %s", path)
 
 
 def _quote_price(value: Decimal | None) -> str:

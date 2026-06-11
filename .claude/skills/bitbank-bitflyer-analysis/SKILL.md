@@ -12,11 +12,15 @@ Use this for `logs/trades/bitbank_bitflyer_arbitrage/`.
 1. Pick the newest matching run files:
    - `events-<run_id>.jsonl`
    - `trades-<run_id>.csv`
-   - `quotes-<run_id>.csv` (runs after 2026-06-12): one row per order-book
-     websocket update, `timestamp` (epoch sec), `exchange`
-     (`bitbank`/`bitflyer`), `best_bid`, `best_ask`, `bid_vwap`, `ask_vwap`
-     (VWAP over `order_size * hedge_vwap_multiplier`). Use this for price
-     trajectories around fills; empty VWAP means insufficient visible depth.
+   - `quotes-<run_id>-<YYYYMMDD>.csv` (runs after 2026-06-12): one row per
+     order-book websocket update, columns `timestamp` (epoch sec), `exchange`
+     (`bitbank`/`bitflyer`), `best_bid`, `best_ask`, `vwap_size`, `bid_vwap`,
+     `ask_vwap` (VWAP over `order_size * hedge_vwap_multiplier`; bitFlyer rows
+     only — empty on bitbank rows since the hedge executes on bitFlyer),
+     `base_size`, `bid_vwap_base`, `ask_vwap_base` (VWAP over plain
+     `order_size`, both exchanges). Use this for price trajectories around
+     fills; an empty VWAP on a bitFlyer row means insufficient visible depth. Files rotate daily (JST); finished days are gzipped to
+     `.csv.gz` and pruned after 7 days, so fetch them promptly.
 
    Runs after 2026-06-12 also have a slimmer events file: `private_api_trace`
    is logged only for failed calls, `maker_place_attempt` was removed (quote

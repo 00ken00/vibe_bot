@@ -222,13 +222,19 @@ class WebSocketQuoteFeed:
         )
         self.state.quote = quote
         if source == "bitbank":
+            # The hedge executes on bitFlyer, so the multiplied-depth VWAP is
+            # meaningless for bitbank; only the order-size VWAP is recorded.
             self.logger.quote(
                 timestamp=quote.timestamp,
                 exchange="bitbank",
                 best_bid=quote.bitbank_bid,
                 best_ask=quote.bitbank_ask,
-                bid_vwap=self._bitbank.vwap("sell", vwap_amount),
-                ask_vwap=self._bitbank.vwap("buy", vwap_amount),
+                vwap_size=None,
+                bid_vwap=None,
+                ask_vwap=None,
+                base_size=amount,
+                bid_vwap_base=self._bitbank.vwap("sell", amount),
+                ask_vwap_base=self._bitbank.vwap("buy", amount),
             )
         else:
             self.logger.quote(
@@ -236,8 +242,12 @@ class WebSocketQuoteFeed:
                 exchange="bitflyer",
                 best_bid=quote.bitflyer_bid,
                 best_ask=quote.bitflyer_ask,
+                vwap_size=vwap_amount,
                 bid_vwap=quote.bitflyer_bid_vwap,
                 ask_vwap=quote.bitflyer_ask_vwap,
+                base_size=amount,
+                bid_vwap_base=quote.bitflyer_bid_vwap_base,
+                ask_vwap_base=quote.bitflyer_ask_vwap_base,
             )
         if self._momentum_guard is not None:
             mid = quote.bitflyer_mid
