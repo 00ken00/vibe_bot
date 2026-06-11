@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import secrets
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
@@ -35,6 +36,27 @@ def decimal_to_json_dict(value: dict[str, object]) -> dict[str, object]:
     if not isinstance(converted, dict):
         raise TypeError("expected JSON object")
     return converted
+
+
+def private_api_failure(payload: dict[str, object]) -> bool:
+    """Whether a private API trace payload represents a failed call.
+
+    bitbank wraps errors in HTTP 200 with ``success != 1``; other exchanges
+    signal failure via non-2xx status codes or non-JSON bodies.
+    """
+    status = payload.get("http_status")
+    if not isinstance(status, int) or not 200 <= status < 300:
+        return True
+    if payload.get("exchange") != "bitbank":
+        return False
+    raw = payload.get("raw_response")
+    if not isinstance(raw, str):
+        return True
+    try:
+        envelope = json.loads(raw)
+    except ValueError:
+        return True
+    return not (isinstance(envelope, dict) and envelope.get("success") == 1)
 
 
 def jst_iso(ts: float | None = None) -> str:

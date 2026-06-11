@@ -9,9 +9,21 @@ Use this for `logs/trades/bitbank_bitflyer_arbitrage/`.
 
 ## Core Workflow
 
-1. Pick the newest matching run pair:
+1. Pick the newest matching run files:
    - `events-<run_id>.jsonl`
    - `trades-<run_id>.csv`
+   - `quotes-<run_id>.csv` (runs after 2026-06-12): one row per order-book
+     websocket update, `timestamp` (epoch sec), `exchange`
+     (`bitbank`/`bitflyer`), `best_bid`, `best_ask`, `bid_vwap`, `ask_vwap`
+     (VWAP over `order_size * hedge_vwap_multiplier`). Use this for price
+     trajectories around fills; empty VWAP means insufficient visible depth.
+
+   Runs after 2026-06-12 also have a slimmer events file: `private_api_trace`
+   is logged only for failed calls, `maker_place_attempt` was removed (quote
+   context now lives in `quotes-<run_id>.csv`), `maker_canceled` no longer
+   repeats the maker dict (see the adjacent `maker_done`), and
+   `bitbank_private_ws_order_ignored` omits `CANCELED_UNFILLED` self-cancel
+   echoes.
 2. Read startup events:
    - `bot_started`
    - `position_initialized`

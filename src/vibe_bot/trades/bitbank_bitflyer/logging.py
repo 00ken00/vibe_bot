@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+from decimal import Decimal
 from pathlib import Path
+from typing import IO
 
 from websockets.asyncio.server import ServerConnection
 
@@ -106,9 +108,13 @@ class TradeLogger:
         self._csv = csv.DictWriter(self._csv_file, fieldnames=fieldnames)
         self._csv.writeheader()
         self._csv_file.flush()
+        self.quotes_path = self.log_dir / f"quotes-{self.run_id}.csv"
+        self._quotes_file: IO[str] | None = None
 
     def close(self) -> None:
         self._csv_file.close()
+        if self._quotes_file is not None:
+            self._quotes_file.close()
 
     def event(self, event_type: str, **payload: object) -> None:
         row = {"run_id": self.run_id, "timestamp": jst_iso(), "event": event_type, **payload}
@@ -118,6 +124,39 @@ class TradeLogger:
     def trade(self, **payload: object) -> None:
         self._csv.writerow(decimal_to_json_dict({"run_id": self.run_id, **payload}))
         self._csv_file.flush()
+
+    def quote(
+        self,
+        *,
+        timestamp: float,
+        exchange: str,
+        best_bid: Decimal | None,
+        best_ask: Decimal | None,
+        bid_vwap: Decimal | None,
+        ask_vwap: Decimal | None,
+    ) -> None:
+        if self._quotes_file is None:
+            self._quotes_file = self.quotes_path.open("x", newline="")
+            self._quotes_file.write(
+                "timestamp,exchange,best_bid,best_ask,bid_vwap,ask_vwap\n"
+            )
+        self._quotes_file.write(
+            f"{timestamp:.3f},{exchange},{_quote_price(best_bid)},"
+            f"{_quote_price(best_ask)},{_quote_vwap(bid_vwap)},{_quote_vwap(ask_vwap)}\n"
+        )
+        self._quotes_file.flush()
+
+
+def _quote_price(value: Decimal | None) -> str:
+    if value is None:
+        return ""
+    return format(value.normalize(), "f")
+
+
+def _quote_vwap(value: Decimal | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:.3f}"
 
 
 class Broadcaster:

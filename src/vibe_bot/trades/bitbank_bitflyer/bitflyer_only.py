@@ -27,6 +27,7 @@ from vibe_bot.trades.bitbank_bitflyer.models import MakerOrder
 from vibe_bot.trades.bitbank_bitflyer.quotes import WebSocketQuoteFeed
 from vibe_bot.trades.bitbank_bitflyer.utils import JST
 from vibe_bot.trades.bitbank_bitflyer.utils import jst_iso
+from vibe_bot.trades.bitbank_bitflyer.utils import private_api_failure
 from vibe_bot.trades.bitbank_bitflyer.web import WebApp
 
 LOGGER = logging.getLogger("vibe_bot.trades.bitbank_bitflyer.bitflyer_only")
@@ -433,7 +434,10 @@ class BitflyerOnlyTrader:
         )
 
     def _log_private_api_trace(self, payload: dict[str, object]) -> None:
-        self.logger.event("private_api_trace", **payload)
+        # Successful calls are routine (mostly maker churn and order polling)
+        # and dominated log volume; only failures are kept for debugging.
+        if private_api_failure(payload):
+            self.logger.event("private_api_trace", **payload)
 
     async def _initialize_bitflyer_position(self) -> None:
         assert self._bf_private is not None

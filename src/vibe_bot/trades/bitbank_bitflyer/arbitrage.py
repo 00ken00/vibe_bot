@@ -31,6 +31,7 @@ from vibe_bot.trades.bitbank_bitflyer.models import StageStatus
 from vibe_bot.trades.bitbank_bitflyer.quotes import WebSocketQuoteFeed
 from vibe_bot.trades.bitbank_bitflyer.utils import JST
 from vibe_bot.trades.bitbank_bitflyer.utils import jst_iso
+from vibe_bot.trades.bitbank_bitflyer.utils import private_api_failure
 from vibe_bot.trades.bitbank_bitflyer.utils import quantize_down
 from vibe_bot.trades.bitbank_bitflyer.utils import quantize_up
 from vibe_bot.trades.bitbank_bitflyer.web import WebApp
@@ -199,13 +200,16 @@ class ArbitrageTrader:
             async with self._maker_reconcile_lock:
                 maker = self.state.active_maker
                 if maker is None or str(order.order_id) != maker.order_id:
-                    self.logger.event(
-                        "bitbank_private_ws_order_ignored",
-                        method=method,
-                        bitbank_order_id=order.order_id,
-                        order_status=order.status,
-                        reason="not_active_maker",
-                    )
+                    # CANCELED_UNFILLED notices are echoes of this bot's own
+                    # cancels and carry no information worth keeping.
+                    if order.status != "CANCELED_UNFILLED":
+                        self.logger.event(
+                            "bitbank_private_ws_order_ignored",
+                            method=method,
+                            bitbank_order_id=order.order_id,
+                            order_status=order.status,
+                            reason="not_active_maker",
+                        )
                     continue
                 await self._reconcile_maker_order_locked(
                     maker,
@@ -497,7 +501,10 @@ class ArbitrageTrader:
         )
 
     def _log_private_api_trace(self, payload: dict[str, object]) -> None:
-        self.logger.event("private_api_trace", **payload)
+        # Successful calls are routine (mostly maker churn and order polling)
+        # and dominated log volume; only failures are kept for debugging.
+        if private_api_failure(payload):
+            self.logger.event("private_api_trace", **payload)
 
     async def _initialize_live_position(self) -> None:
         assert self._bb_private is not None
@@ -672,25 +679,6 @@ class ArbitrageTrader:
             self.logger.event("maker_quote", dry_run=True, maker=asdict(target))
             return
         assert self._bb_private is not None
-        self.logger.event(
-            "maker_place_attempt",
-            pair=self.config.bitbank_pair,
-            order_type="limit",
-            post_only=True,
-            maker=asdict(target),
-            quote={
-                "bitbank_bid": self.state.quote.bitbank_bid,
-                "bitbank_ask": self.state.quote.bitbank_ask,
-                "bitbank_buy_maker": self.state.quote.bitbank_buy_maker,
-                "bitbank_sell_maker": self.state.quote.bitbank_sell_maker,
-                "bitflyer_bid": self.state.quote.bitflyer_bid,
-                "bitflyer_ask": self.state.quote.bitflyer_ask,
-                "bitflyer_bid_vwap": self.state.quote.bitflyer_bid_vwap,
-                "bitflyer_ask_vwap": self.state.quote.bitflyer_ask_vwap,
-                "buy_price": self.state.quote.buy_price,
-                "sell_price": self.state.quote.sell_price,
-            },
-        )
         order = await self._bb_private.place_order(
             pair=self.config.bitbank_pair,
             side=target.side,
@@ -788,8 +776,13 @@ class ArbitrageTrader:
             order,
             detection_source="cancel_order_response",
         )
+        # The full maker dict was just logged by maker_done during reconcile;
+        # only the cancel-specific fields are recorded here.
         self.logger.event(
-            "maker_canceled", reason=reason, order_status=order.status, maker=asdict(maker)
+            "maker_canceled",
+            reason=reason,
+            order_status=order.status,
+            order_id=maker.order_id,
         )
         self.state.set_action(
             BotAction.CANCELED_MAKER,
@@ -882,7 +875,7 @@ class ArbitrageTrader:
         if order.status in ("FULLY_FILLED", "CANCELED_UNFILLED", "CANCELED_PARTIALLY_FILLED", "REJECTED"):
             if self.state.active_maker is maker:
                 self.state.active_maker = None
-            self.logger.event("maker_done", status=order.status, maker=asdict(maker))
+                self.logger.event("maker_done", status=order.status, maker=asdict(maker))
 
     def _apply_bitbank_pnl(
         self, maker: MakerOrder, amount: Decimal, bitbank_fill_price: Decimal

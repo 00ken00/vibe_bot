@@ -175,7 +175,7 @@ class WebSocketQuoteFeed:
                     self._bitbank.replace(bids=bids, asks=asks)
                 elif room.startswith("depth_diff_"):
                     self._bitbank.update(bids=bids, asks=asks)
-                await self._publish_quote_locked()
+                await self._publish_quote_locked("bitbank")
 
     async def _run_bitflyer(
         self, ws: BitflyerPublicWebSocket, stop: asyncio.Event
@@ -194,9 +194,9 @@ class WebSocketQuoteFeed:
                     self._bitflyer.replace(bids=bids, asks=asks)
                 elif "board_" in channel:
                     self._bitflyer.update(bids=bids, asks=asks)
-                await self._publish_quote_locked()
+                await self._publish_quote_locked("bitflyer")
 
-    async def _publish_quote_locked(self) -> None:
+    async def _publish_quote_locked(self, source: str) -> None:
         amount = self.config.order_size
         vwap_amount = amount * self.config.hedge_vwap_multiplier
         quote = Quote(
@@ -221,6 +221,24 @@ class WebSocketQuoteFeed:
             timestamp=time.time(),
         )
         self.state.quote = quote
+        if source == "bitbank":
+            self.logger.quote(
+                timestamp=quote.timestamp,
+                exchange="bitbank",
+                best_bid=quote.bitbank_bid,
+                best_ask=quote.bitbank_ask,
+                bid_vwap=self._bitbank.vwap("sell", vwap_amount),
+                ask_vwap=self._bitbank.vwap("buy", vwap_amount),
+            )
+        else:
+            self.logger.quote(
+                timestamp=quote.timestamp,
+                exchange="bitflyer",
+                best_bid=quote.bitflyer_bid,
+                best_ask=quote.bitflyer_ask,
+                bid_vwap=quote.bitflyer_bid_vwap,
+                ask_vwap=quote.bitflyer_ask_vwap,
+            )
         if self._momentum_guard is not None:
             mid = quote.bitflyer_mid
             if mid is not None:

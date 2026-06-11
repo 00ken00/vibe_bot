@@ -368,7 +368,7 @@ canvas {{ width: 100%; height: 480px; display: block; }}
     <div class="metric"><div class="label">bitbank / bitFlyer Pos</div><div id="exchangePositions" class="value">--</div></div>
     <div class="metric"><div class="label">Unhedged BTC</div><div id="unhedgedPosition" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Top Bid / Ask</div><div id="bf" class="value">--</div></div>
-    <div class="metric"><div class="label">bitFlyer Est Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
+    <div class="metric"><div class="label">bitFlyer Est {self.config.hedge_vwap_multiplier}x Sell / Buy</div><div id="bfDepth" class="value">--</div></div>
     <div class="metric"><div class="label">bitFlyer Est 1x Sell / Buy</div><div id="bfDepthBase" class="value">--</div></div>
     <div class="metric"><div class="label">Momentum Guard</div><div id="momentumGuard" class="value">--</div></div>
     <div class="metric"><div class="label">Active Maker</div><div id="maker" class="value">--</div></div>
