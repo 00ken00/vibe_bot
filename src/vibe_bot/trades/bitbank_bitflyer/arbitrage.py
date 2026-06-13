@@ -80,6 +80,7 @@ class ArbitrageTrader:
         state: BotState,
         logger: TradeLogger,
         momentum_guard: MomentumGuard | None = None,
+        bitflyer_quote_event: asyncio.Event | None = None,
     ) -> None:
         self.config = config
         self.state = state
@@ -91,6 +92,9 @@ class ArbitrageTrader:
         self._shutdown_started = False
         self._momentum_guard = momentum_guard or MomentumGuard.from_config(config)
         self._momentum_blocked_action: str | None = None
+        self._bitflyer_quote_event = bitflyer_quote_event
+        self._last_maker_placement_at = 0.0
+        self._canceling_maker_order_id: str | None = None
 
     async def run(self, stop: asyncio.Event) -> None:
         if not self.config.dry_run:
@@ -113,15 +117,35 @@ class ArbitrageTrader:
                     self._run_bitbank_private_stream(stop)
                 )
             self.state.stage_status = self._stage_status()
+            next_tick_at = 0.0
             while not stop.is_set():
+                now = time.time()
+                if now >= next_tick_at:
+                    try:
+                        await self._tick()
+                        self.state.last_error = ""
+                    except Exception as exc:
+                        self.state.last_error = f"trader tick failed: {exc}"
+                        self.logger.event("error", message=self.state.last_error)
+                        LOGGER.exception("trader tick failed")
+                    next_tick_at = time.time() + self.config.maker_placement_interval
+                    continue
+                timeout = max(0.0, next_tick_at - now)
+                event = self._bitflyer_quote_event
+                if event is None:
+                    await asyncio.sleep(timeout)
+                    continue
                 try:
-                    await self._tick()
-                    self.state.last_error = ""
+                    await asyncio.wait_for(event.wait(), timeout=timeout)
+                except TimeoutError:
+                    continue
+                event.clear()
+                try:
+                    await self._cancel_if_hedge_price_deteriorated()
                 except Exception as exc:
-                    self.state.last_error = f"trader tick failed: {exc}"
+                    self.state.last_error = f"quote-triggered maker cancel failed: {exc}"
                     self.logger.event("error", message=self.state.last_error)
-                    LOGGER.exception("trader tick failed")
-                await asyncio.sleep(self.config.maker_update_interval)
+                    LOGGER.exception("quote-triggered maker cancel failed")
         finally:
             await self._stop_bitbank_private_stream()
             await self.shutdown("shutdown")
@@ -669,9 +693,32 @@ class ArbitrageTrader:
                 position=self.state.position,
             )
             return
+        next_allowed_at = (
+            self._last_maker_placement_at + self.config.maker_placement_interval
+        )
+        now = time.time()
+        if now < next_allowed_at:
+            wait_seconds = next_allowed_at - now
+            self.logger.event(
+                "maker_place_deferred",
+                reason="maker_placement_interval",
+                wait_seconds=wait_seconds,
+                maker=asdict(target),
+            )
+            self.state.set_action(
+                BotAction.IDLE,
+                event_summary(
+                    "maker_place_deferred",
+                    reason="maker_placement_interval",
+                    wait_seconds=wait_seconds,
+                    maker=asdict(target),
+                ),
+            )
+            return
         if self.config.dry_run:
             target.order_id = "DRY-RUN"
             self.state.active_maker = target
+            self._last_maker_placement_at = time.time()
             self.state.set_action(
                 BotAction.dry_run_quote(target.action),
                 event_summary("maker_quote", dry_run=True, maker=asdict(target)),
@@ -691,11 +738,69 @@ class ArbitrageTrader:
         target.order_id = str(order.order_id)
         target.executed_amount = order.executed_amount
         self.state.active_maker = target
+        self._last_maker_placement_at = time.time()
         self.state.set_action(
             BotAction.placed(target.action),
             event_summary("maker_placed", maker=asdict(target)),
         )
         self.logger.event("maker_placed", maker=asdict(target))
+
+    async def _cancel_if_hedge_price_deteriorated(self) -> None:
+        maker = self.state.active_maker
+        if maker is None:
+            return
+        if maker.order_id is not None and maker.order_id == self._canceling_maker_order_id:
+            return
+        deterioration = self._hedge_price_deterioration(maker)
+        if deterioration is None:
+            return
+        if deterioration["deterioration_jpy"] < self.config.hedge_slippage_buffer_jpy:
+            return
+        self.logger.event(
+            "maker_hedge_price_deteriorated",
+            maker=asdict(maker),
+            hedge_side=deterioration["hedge_side"],
+            expected_hedge_price=deterioration["expected_hedge_price"],
+            current_hedge_price=deterioration["current_hedge_price"],
+            deterioration_jpy=deterioration["deterioration_jpy"],
+            threshold_jpy=self.config.hedge_slippage_buffer_jpy,
+            bitflyer_bid_vwap=self.state.quote.bitflyer_bid_vwap,
+            bitflyer_ask_vwap=self.state.quote.bitflyer_ask_vwap,
+            bitflyer_bid_vwap_base=self.state.quote.bitflyer_bid_vwap_base,
+            bitflyer_ask_vwap_base=self.state.quote.bitflyer_ask_vwap_base,
+        )
+        self._canceling_maker_order_id = maker.order_id
+        try:
+            await self._cancel_active_maker("hedge_price_deteriorated")
+        finally:
+            if self._canceling_maker_order_id == maker.order_id:
+                self._canceling_maker_order_id = None
+
+    def _hedge_price_deterioration(
+        self, maker: MakerOrder
+    ) -> dict[str, object] | None:
+        quote = self.state.quote
+        if maker.action == "BUY":
+            current = quote.bitflyer_bid_vwap
+            if current is None:
+                return None
+            deterioration = maker.expected_hedge_price - current
+            return {
+                "hedge_side": "SELL",
+                "expected_hedge_price": maker.expected_hedge_price,
+                "current_hedge_price": current,
+                "deterioration_jpy": deterioration,
+            }
+        current = quote.bitflyer_ask_vwap
+        if current is None:
+            return None
+        deterioration = current - maker.expected_hedge_price
+        return {
+            "hedge_side": "BUY",
+            "expected_hedge_price": maker.expected_hedge_price,
+            "current_hedge_price": current,
+            "deterioration_jpy": deterioration,
+        }
 
     async def _cancel_active_maker(self, reason: str) -> None:
         maker = self.state.active_maker
@@ -1406,10 +1511,23 @@ async def run_bot(config: BotConfig) -> None:
     logger = TradeLogger(config.log_dir)
     broadcaster = Broadcaster()
     stop = asyncio.Event()
+    bitflyer_quote_event = asyncio.Event()
     momentum_guard = MomentumGuard.from_config(config)
     web = WebApp(config, state, broadcaster, momentum_guard=momentum_guard)
-    quote_feed = WebSocketQuoteFeed(config, state, logger, momentum_guard=momentum_guard)
-    trader = ArbitrageTrader(config, state, logger, momentum_guard=momentum_guard)
+    quote_feed = WebSocketQuoteFeed(
+        config,
+        state,
+        logger,
+        momentum_guard=momentum_guard,
+        bitflyer_quote_event=bitflyer_quote_event,
+    )
+    trader = ArbitrageTrader(
+        config,
+        state,
+        logger,
+        momentum_guard=momentum_guard,
+        bitflyer_quote_event=bitflyer_quote_event,
+    )
 
     def request_stop() -> None:
         stop.set()

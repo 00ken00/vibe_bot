@@ -31,7 +31,7 @@ class BotConfig:
     order_size: Decimal = Decimal("0.001")
     stage_size: Decimal = Decimal("0.001")
     max_stages: int = 3
-    maker_update_interval: float = 0.5
+    maker_placement_interval: float = 0.5
     monitor_update_interval: float = 1.0
     tick_size: Decimal = Decimal("1")
     min_order_size: Decimal = Decimal("0.0001")
@@ -131,7 +131,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="maximum number of spread ladder stages per side",
     )
-    parser.add_argument("--maker-update-interval", type=float, default=0.5)
+    parser.add_argument(
+        "--maker-placement-interval",
+        "--maker-update-interval",
+        dest="maker_placement_interval",
+        type=float,
+        default=0.5,
+        help=(
+            "minimum seconds between bitbank maker placements/replacements; "
+            "--maker-update-interval is accepted as a deprecated alias"
+        ),
+    )
     parser.add_argument(
         "--monitor-update-interval",
         type=float,
@@ -226,8 +236,8 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         raise SystemExit("--order-size must be greater than or equal to --min-order-size")
     if args.stage_size < args.min_order_size:
         raise SystemExit("--stage-size must be greater than or equal to --min-order-size")
-    if args.maker_update_interval <= 0:
-        raise SystemExit("--maker-update-interval must be positive")
+    if args.maker_placement_interval <= 0:
+        raise SystemExit("--maker-placement-interval must be positive")
     if args.monitor_update_interval <= 0:
         raise SystemExit("--monitor-update-interval must be positive")
     try:
@@ -251,7 +261,7 @@ def config_from_args(args: argparse.Namespace) -> BotConfig:
         order_size=args.order_size,
         stage_size=args.stage_size,
         max_stages=args.max_stages,
-        maker_update_interval=args.maker_update_interval,
+        maker_placement_interval=args.maker_placement_interval,
         monitor_update_interval=args.monitor_update_interval,
         tick_size=args.tick_size,
         min_order_size=args.min_order_size,

@@ -28,7 +28,7 @@ python3 -m vibe_bot.trades.bitbank_bitflyer.arbitrage \
   --order-size 0.001 \
   --stage-size 0.001 \
   --max-stages 3 \
-  --maker-update-interval 0.5 \
+  --maker-placement-interval 0.5 \
   --monitor-update-interval 1.0 \
   --disable-bitflyer-hedge
 ```

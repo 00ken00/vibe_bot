@@ -16,8 +16,13 @@ flowchart TD
     QB --> QP[Update Quote from order-size VWAP]
     BF --> QP
 
+    BF --> URGENT[Signal trader on every bitFlyer book event]
+    URGENT --> DET{"active maker hedge VWAP deteriorated by buffer?"}
+    DET -- yes --> CANCELH[Cancel active maker immediately]
+    DET -- no --> QP
+
     TR --> MODE{"live mode?"}
-    MODE -- no --> TICK{Every maker_update_interval}
+    MODE -- no --> TICK{Every maker_placement_interval}
     MODE -- yes --> INIT[Fetch bitbank assets and margin positions, fetch bitFlyer positions]
     INIT --> CHECK{"positions match within min_order_size?"}
     CHECK -- no --> FAIL[log: position_initialization_mismatch and stop]
@@ -32,7 +37,7 @@ flowchart TD
     IDLE --> CANCEL0[Cancel active maker if any]
     HAS -- yes --> SAME{"same as active maker?"}
     SAME -- yes --> MAINTAIN[Action: MAINTAIN_BUY or MAINTAIN_SELL]
-    SAME -- no --> REPLACE[Replace maker]
+    SAME -- no --> REPLACE[Replace maker if placement interval elapsed]
 ```
 
 ## Target Conditions

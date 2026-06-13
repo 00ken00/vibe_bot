@@ -109,6 +109,7 @@ class WebSocketQuoteFeed:
         state: BotState,
         logger: TradeLogger,
         momentum_guard: MomentumGuard | None = None,
+        bitflyer_quote_event: asyncio.Event | None = None,
     ) -> None:
         self.config = config
         self.state = state
@@ -117,6 +118,7 @@ class WebSocketQuoteFeed:
         self._bitflyer = OrderBook()
         self._lock = asyncio.Lock()
         self._momentum_guard = momentum_guard
+        self._bitflyer_quote_event = bitflyer_quote_event
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -253,5 +255,7 @@ class WebSocketQuoteFeed:
             mid = quote.bitflyer_mid
             if mid is not None:
                 self._momentum_guard.record(mid, quote.timestamp)
+        if source == "bitflyer" and self._bitflyer_quote_event is not None:
+            self._bitflyer_quote_event.set()
         if quote.ready:
             self.state.last_error = ""

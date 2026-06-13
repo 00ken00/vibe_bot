@@ -74,7 +74,7 @@ class BitflyerOnlyTrader:
         while not stop.is_set():
             try:
                 if not self.state.quote.ready:
-                    await asyncio.sleep(self.config.maker_update_interval)
+                    await asyncio.sleep(self.config.maker_placement_interval)
                     continue
                 self.state.stage_status = self._selector._stage_status()
                 target = self._selector._choose_target()
@@ -113,7 +113,7 @@ class BitflyerOnlyTrader:
                             "and require matched_trade_volume > queue_ahead_size."
                         ),
                     )
-                await asyncio.sleep(self.config.maker_update_interval)
+                await asyncio.sleep(self.config.maker_placement_interval)
             except Exception as exc:
                 self.state.last_error = f"bitFlyer-only target loop failed: {exc}"
                 self.logger.event("error", message=self.state.last_error)
