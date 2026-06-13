@@ -93,6 +93,24 @@ Prefer logged fields when present:
 
 `private_ws_spot_order` means bitbank private stream detected the fill. `fallback_order_info_poll`, `fallback_order_info_after_cancel_error`, or `cancel_order_response` mean REST/cancel reconciliation detected it.
 
+For fallback-detected fills, `order_info.executed_at` can be null even when the
+order is fully or partially filled. If `bitbank_execution_timestamp` is missing
+and the exact fill time matters, use the bitbank skill/client to query:
+
+```python
+await PrivateClient().trade_history(pair="btc_jpy", order_id=<order_id>)
+```
+
+The returned trade rows include `executed_at` server timestamps. Compare that
+timestamp against:
+
+- the `maker_placed` timestamp, to measure maker rest time before fill
+- `bitbank_fill_notice_timestamp`, to measure fill-to-detection latency
+- `bitflyer_execution_timestamp`, to measure fill-to-hedge-execution latency
+
+This distinction matters when diagnosing stale maker exposure: maker live time
+is not the same as fill detection latency.
+
 ## Common Pitfalls
 
 - Neutral amounts omitted: existing inventory is treated as active strategy position.
